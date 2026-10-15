@@ -115,7 +115,9 @@ def main():
             saved += 1
         if i % every == 0:
             print(f"{i}/{len(items)}  ({time.time() - t0:.0f}s)", flush=True)
-    print(f"{a.name}: saved {saved} face crops, skipped {no_face} images/frames with no face")
+    print(f"{a.name}: saved {saved} face crops, skipped {no_face} images/frames with no face ({time.time() - t0:.0f}s)")
+    Path(a.out).mkdir(parents=True, exist_ok=True)
+    (Path(a.out) / f".done_{a.name}").write_text(str(saved))      # lets the notebook skip finished datasets
 
 
 if __name__ == "__main__":
