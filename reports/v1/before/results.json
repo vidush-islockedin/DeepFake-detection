@@ -1,0 +1,63 @@
+{
+  "model": "dima806/deepfake_vs_real_image_detection",
+  "A": {
+    "images": 1878,
+    "accuracy": 0.646964856230032,
+    "precision": 0.590937306021105,
+    "recall": 0.99581589958159,
+    "f1": 0.7417218543046358,
+    "auc": 0.9578384946314634,
+    "confusion_matrix": [
+      [
+        263,
+        659
+      ],
+      [
+        4,
+        952
+      ]
+    ],
+    "real_called_fake": 659,
+    "fake_called_real": 4
+  },
+  "B": {
+    "images": 1999,
+    "accuracy": 0.5432716358179089,
+    "precision": 0.5312724658519051,
+    "recall": 0.739,
+    "f1": 0.6181514010874112,
+    "auc": 0.5806746746746747,
+    "confusion_matrix": [
+      [
+        347,
+        652
+      ],
+      [
+        261,
+        739
+      ]
+    ],
+    "real_called_fake": 652,
+    "fake_called_real": 261
+  },
+  "C": {
+    "images": 382,
+    "accuracy": 0.680628272251309,
+    "precision": 0.823943661971831,
+    "recall": 0.7647058823529411,
+    "f1": 0.7932203389830509,
+    "auc": 0.5926642586859304,
+    "confusion_matrix": [
+      [
+        26,
+        50
+      ],
+      [
+        72,
+        234
+      ]
+    ],
+    "real_called_fake": 50,
+    "fake_called_real": 72
+  }
+}

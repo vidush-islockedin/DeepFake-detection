@@ -19,7 +19,7 @@ def score(det, folder, bs=64):
     paths = sorted(Path(folder).glob("*/*.jpg"))
     y = [int(p.parent.name == "fake") for p in paths]
     p = sum((det.p_fake([Image.open(q).convert("RGB") for q in paths[i:i + bs]]) for i in range(0, len(paths), bs)), [])
-    pred = [int(v >= 0.5) for v in p]
+    pred = [int(v >= det.threshold) for v in p]
     cm = confusion_matrix(y, pred, labels=[0, 1]).tolist()   # rows: actual REAL, FAKE; cols: predicted
     return {"images": len(y), "accuracy": accuracy_score(y, pred), "precision": precision_score(y, pred, zero_division=0),
             "recall": recall_score(y, pred, zero_division=0), "f1": f1_score(y, pred, zero_division=0),
@@ -46,8 +46,8 @@ def main():
     a = ap.parse_args()
     det, out = Detector(a.model), Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    results = {"model": a.model}
-    for folder in sorted(Path(a.data).iterdir()):
+    results = {"model": a.model, "threshold": det.threshold}
+    for folder in sorted(f for f in Path(a.data).iterdir() if f.is_dir()):
         r = results[folder.name] = score(det, folder)
         plot(r["confusion_matrix"], f"Test set {folder.name}", out / f"confusion_{folder.name}.png")
         print(f"{folder.name}: {r['images']} faces | accuracy {r['accuracy']:.4f} | F1 {r['f1']:.4f} | AUC {r['auc']}")

@@ -1,17 +1,388 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>MT-ViT</title>
-<style>body{font-family:system-ui;max-width:640px;margin:40px auto;padding:0 16px}img{max-width:100%}pre{background:#f4f4f5;padding:12px;overflow:auto}</style></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MT-ViT Deepfake Check</title>
+<style>
+@font-face { font-family: "Archivo"; src: url("/static/fonts/archivo.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
+:root {
+  --bg: #edf0f3; --surface: #ffffff; --ink: #14212b; --ink-2: #4a5866; --line: #cbd3db;
+  --tag: #f5c518; --fake: #b4233a; --fake-tint: #f9e7ea; --real: #0d6e55; --real-tint: #e1f1eb;
+  --r-sm: 4px; --r-md: 8px;
+  --wide: 125%; --ease: cubic-bezier(.2, .7, .2, 1);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 "Archivo", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+h1, h2, h3, p { margin: 0; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+/* top bar */
+.bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; }
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-stretch: var(--wide); font-size: 20px; }
+.model-line { color: var(--ink-2); font-size: 14px; text-align: right; }
+
+/* check: photo stage + verdict */
+.check { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 24px; padding-bottom: 48px; }
+.stage { position: relative; background: var(--surface); border-radius: var(--r-md); min-height: 480px; display: grid; place-items: center; overflow: hidden; }
+.drop { display: grid; justify-items: center; gap: 16px; text-align: center; padding: 48px 24px; width: 100%; height: 100%; align-content: center; border: 2px dashed var(--line); border-radius: var(--r-md); cursor: pointer; transition: border-color .2s var(--ease), background .2s var(--ease); }
+.drop:hover, .drop.over { border-color: var(--ink); background: #f7f9fa; }
+.drop strong { font-size: 20px; font-stretch: var(--wide); font-weight: 700; }
+.drop small { color: var(--ink-2); font-size: 14px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: var(--r-sm); border: 1.5px solid var(--ink); background: var(--ink); color: #fff; font-weight: 600; cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--ink); }
+.btn:hover { opacity: .88; }
+.photo { position: relative; margin: 0; width: 100%; height: 100%; display: grid; place-items: center; padding: 24px; }
+.photo-box { position: relative; line-height: 0; }
+.photo img { max-width: 100%; max-height: 560px; border-radius: var(--r-sm); }
+.face { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(20, 33, 43, .6); border-radius: var(--r-sm); }
+.face b { position: absolute; top: -14px; left: -14px; width: 28px; height: 28px; border-radius: 50%; background: var(--tag); color: var(--ink); font: 700 14px/24px "Archivo", sans-serif; text-align: center; border: 2px solid #fff; }
+.again { position: absolute; right: 16px; bottom: 16px; background: var(--surface); }
+.busy { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(237, 240, 243, .85); font-weight: 600; }
+
+.verdict { display: flex; flex-direction: column; gap: 24px; padding: 32px; background: var(--surface); border-radius: var(--r-md); }
+.verdict h1 { font-size: 44px; line-height: 1.05; font-stretch: var(--wide); font-weight: 800; letter-spacing: -.01em; }
+.verdict h1.fake { color: var(--fake); }
+.verdict h1.real { color: var(--real); }
+.lede { color: var(--ink-2); max-width: 44ch; }
+.tip { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 14px; max-width: 52ch; }
+.meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.meter-head span { color: var(--ink-2); font-size: 14px; }
+.meter-head strong { font-size: 28px; font-stretch: var(--wide); }
+.meter { position: relative; height: 12px; border-radius: 999px; background: var(--bg); margin-top: 8px; }
+.meter i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--ink); width: 0; transition: width .8s var(--ease); }
+.meter .cut { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--ink-2); }
+.meter-scale { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 14px; margin-top: 8px; }
+.summary { font-size: 18px; line-height: 1.55; max-width: 46ch; }
+.facelist { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; border-top: 1px solid var(--line); padding-top: 16px; }
+.facelist li { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+.facelist b { width: 24px; height: 24px; border-radius: 50%; background: var(--tag); text-align: center; line-height: 24px; flex: none; }
+.pill { margin-left: auto; padding: 2px 12px; border-radius: 999px; font-weight: 600; }
+.pill.fake { background: var(--fake-tint); color: var(--fake); }
+.pill.real { background: var(--real-tint); color: var(--real); }
+
+/* evidence */
+section h2 { font-size: 28px; line-height: 1.2; font-stretch: var(--wide); font-weight: 800; }
+.evidence { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 48px; padding: 48px 0; border-top: 1px solid var(--line); }
+.evidence .intro { display: grid; gap: 12px; grid-column: 1 / -1; }
+.evidence .intro p { color: var(--ink-2); max-width: 64ch; }
+.viewer { position: relative; width: 100%; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden; background: var(--ink); }
+.viewer img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.viewer img + img { transition: opacity .15s linear; }
+.controls { display: grid; gap: 12px; margin-top: 16px; }
+.slider { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; font-size: 14px; color: var(--ink-2); }
+input[type=range] { width: 100%; accent-color: var(--ink); height: 44px; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs button { min-height: 44px; padding: 0 16px; border-radius: var(--r-sm); border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; }
+.tabs button[aria-pressed=true] { border-color: var(--ink); background: var(--ink); color: #fff; }
+.scale { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.scale span { height: 8px; flex: 1; border-radius: 999px; background: linear-gradient(90deg, #000004, #57106e, #bc3754, #f98e09, #fcffa4); }
+.regions { display: grid; gap: 20px; align-content: start; padding: 0; margin: 0; list-style: none; }
+.regions li { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; }
+.regions .name { font-weight: 600; }
+.regions .val { font-size: 20px; font-weight: 700; font-stretch: var(--wide); }
+.track { grid-column: 1 / -1; position: relative; height: 10px; border-radius: 999px; background: var(--surface); }
+.track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--ink); }
+.track u { position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px; background: var(--tag); box-shadow: 0 0 0 1px var(--ink); }
+.regions small { grid-column: 1 / -1; color: var(--ink-2); font-size: 14px; }
+.legend { display: flex; gap: 24px; flex-wrap: wrap; color: var(--ink-2); font-size: 14px; margin-top: 8px; }
+.legend span::before { content: ""; display: inline-block; width: 16px; height: 8px; border-radius: 999px; background: var(--ink); margin-right: 8px; vertical-align: middle; }
+.legend span + span::before { width: 3px; height: 14px; background: var(--tag); box-shadow: 0 0 0 1px var(--ink); }
+
+/* report */
+.report { padding: 48px 0; border-top: 1px solid var(--line); display: grid; gap: 24px; }
+.report > p { color: var(--ink-2); max-width: 70ch; }
+.report-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
+.table-wrap { overflow-x: auto; background: var(--surface); border-radius: var(--r-md); }
+table { width: 100%; border-collapse: collapse; min-width: 620px; }
+th, td { text-align: left; padding: 16px; border-bottom: 1px solid var(--bg); font-size: 14px; vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; }
+td.num, th.num { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: #f7f9fa; }
+tbody tr[aria-selected=true] { box-shadow: inset 4px 0 0 var(--tag); background: #fbfcfd; }
+.set { display: grid; gap: 4px; }
+.set strong { font-size: 16px; }
+.set span { color: var(--ink-2); }
+.big { font-size: 16px; font-weight: 700; }
+.err { color: var(--fake); font-weight: 600; }
+.matrix-card { background: var(--surface); border-radius: var(--r-md); padding: 24px; display: grid; gap: 16px; }
+.matrix-card h3 { font-size: 20px; font-stretch: var(--wide); font-weight: 700; }
+.matrix { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px; font-size: 14px; }
+.matrix .h { color: var(--ink-2); padding: 4px 8px; align-self: end; }
+.matrix .rh { color: var(--ink-2); padding: 8px; align-self: center; }
+.cell { border-radius: var(--r-sm); padding: 12px; background: var(--bg); display: grid; gap: 4px; }
+.cell strong { font-size: 28px; font-stretch: var(--wide); line-height: 1.2; }
+.cell.ok { background: var(--real-tint); }
+.cell.bad { background: var(--fake-tint); }
+.cell.bad strong { color: var(--fake); }
+.note { padding: 16px; border-radius: var(--r-sm); background: #fff8dc; border-left: 4px solid var(--tag); font-size: 14px; line-height: 1.55; }
+
+/* how */
+.how { padding: 48px 0 64px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 2fr; gap: 48px; }
+.how ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; counter-reset: s; }
+.how li { counter-increment: s; display: grid; gap: 8px; align-content: start; }
+.how li::before { content: counter(s); width: 32px; height: 32px; border-radius: 50%; background: var(--tag); font-weight: 700; display: grid; place-items: center; }
+.how li p { color: var(--ink-2); font-size: 14px; }
+footer { padding: 24px 0 40px; color: var(--ink-2); font-size: 14px; border-top: 1px solid var(--line); }
+[hidden] { display: none !important; }
+
+@media (max-width: 960px) {
+  .check, .evidence, .report-grid, .how { grid-template-columns: 1fr; }
+  .evidence .viewer-col { max-width: 420px; }
+  .how ol { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .wrap { padding: 0 16px; }
+  .bar { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .model-line { text-align: left; }
+  .stage { min-height: 320px; }
+  .stage:has(.photo:not([hidden])) { min-height: 0; }
+  .photo { padding: 16px 16px 76px; }
+  .verdict { padding: 24px; }
+  .table-wrap { background: none; }
+  table { min-width: 0; }
+  thead { display: none; }
+  tbody { display: grid; gap: 12px; }
+  tbody tr { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px; background: var(--surface); border-radius: var(--r-md); }
+  tbody tr[aria-selected=true] { background: var(--surface); }
+  td { padding: 0; border: 0; display: grid; gap: 4px; }
+  td.num { text-align: left; }
+  td:first-child { grid-column: 1 / -1; }
+  td[data-label]::before { content: attr(data-label); color: var(--ink-2); font-weight: 400; font-size: 14px; }
+  .verdict h1 { font-size: 36px; }
+  .evidence, .report, .how { padding: 40px 0; gap: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
 <body>
-<h1>MT-ViT deepfake detector</h1>
-<p>Temporary test page. The designed interface arrives in Phase 4.</p>
-<input type="file" id="f" accept="image/*">
-<pre id="out">Choose an image…</pre>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 9V2h7M19 2h7v7M26 19v7h-7M9 26H2v-7"/><circle cx="14" cy="14" r="5" fill="#f5c518" stroke="none"/></svg>
+      MT-ViT
+    </div>
+    <p class="model-line" id="modelLine">Loading model details</p>
+  </header>
+
+  <main>
+    <section class="check" aria-label="Check a photo">
+      <div class="stage" id="stage">
+        <label class="drop" id="drop" for="file">
+          <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          <strong>Drop a photo with a face</strong>
+          <span class="btn">Choose a photo</span>
+          <small>JPG, PNG or WebP. The photo is checked on this computer and never uploaded anywhere.</small>
+        </label>
+        <input type="file" id="file" accept="image/*" hidden>
+        <figure class="photo" id="photo" hidden>
+          <div class="photo-box" id="photoBox"><img id="photoImg" alt="The photo being checked"></div>
+          <button class="btn ghost again" id="again" type="button">Check another photo</button>
+        </figure>
+        <div class="busy" id="busy" hidden>Finding faces and scoring them</div>
+      </div>
+
+      <aside class="verdict" aria-live="polite">
+        <h1 id="word">Is this face real or a deepfake?</h1>
+        <p class="lede" id="lede">Add a photo. MTCNN finds every face, a Vision Transformer scores each one, and a heatmap shows what the answer was based on.</p>
+        <p class="tip" id="tip">Works best on clear, front-facing faces. It is weaker on face-swap frames taken from compressed video; the test results below show how much.</p>
+        <div id="result" hidden>
+          <div class="meter-head"><span>Chance it is a deepfake</span><strong id="pct">0%</strong></div>
+          <div class="meter" role="img" id="meterLabel"><i id="bar"></i><span class="cut" id="cut"></span></div>
+          <div class="meter-scale"><span>Real</span><span id="cutLabel">Cut-off 50%</span><span>Deepfake</span></div>
+        </div>
+        <p class="summary" id="summary" hidden></p>
+        <ul class="facelist" id="facelist" hidden></ul>
+      </aside>
+    </section>
+
+    <section class="evidence" id="evidence" hidden>
+      <div class="intro">
+        <h2>What the model looked at</h2>
+        <p id="evidenceIntro"></p>
+      </div>
+      <div class="viewer-col">
+        <div class="viewer"><img id="crop" alt="The face the model checked"><img id="heat" alt="Heatmap of the evidence on this face"></div>
+        <div class="controls">
+          <label class="slider">Heatmap <input type="range" id="opacity" min="0" max="100" value="85"></label>
+          <div class="scale">Little evidence <span></span> Strong</div>
+          <div class="tabs" id="faceTabs" aria-label="Choose a face"></div>
+        </div>
+      </div>
+      <div>
+        <ul class="regions" id="regions"></ul>
+        <div class="legend"><span>Share of the evidence</span><span>Share of the picture</span></div>
+      </div>
+    </section>
+
+    <section class="report" id="report">
+      <h2>How accurate is it?</h2>
+      <p id="reportIntro">Loading the test results.</p>
+      <div class="report-grid">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Test set</th><th class="num">Faces</th><th class="num">Original model</th><th class="num">Our model</th><th class="num">False positives</th><th class="num">False negatives</th><th class="num">AUC</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="matrix-card">
+          <h3 id="mTitle"></h3>
+          <div class="tabs" id="mTabs">
+            <button type="button" data-run="after" aria-pressed="true">Our model</button>
+            <button type="button" data-run="before" aria-pressed="false">Original model</button>
+          </div>
+          <div class="matrix" id="matrix"></div>
+          <p class="note" id="mNote" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="how">
+      <h2>How it works</h2>
+      <ol>
+        <li><strong>Find the faces</strong><p>MTCNN locates every face and its eyes, nose and mouth, then crops a square 1.3 times the face size so the blend edges stay in view.</p></li>
+        <li><strong>Score each face</strong><p>A ViT-B/16 Vision Transformer, pre-trained and then fine-tuned on our Kaggle face datasets, gives the chance that the face is a deepfake. One fake face makes the whole photo fake.</p></li>
+        <li><strong>Show the evidence</strong><p>Grad-CAM traces the verdict back to the image patches that drove it, and the landmarks split that evidence into eyes, nose, mouth and the rest of the face.</p></li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>AI Language Mini Project by Abdulla Mahir, Vidush Karnani and Ishaan Kulkarni.</footer>
+</div>
+
 <script>
-f.onchange = async () => {
-  const body = new FormData(); body.append("file", f.files[0]);
-  out.textContent = "Analysing…";
-  const r = await fetch("/api/predict", {method: "POST", body});
-  out.textContent = JSON.stringify(await r.json(), null, 2);
+const $ = id => document.getElementById(id);
+const pct = v => `${(v * 100).toFixed(1).replace(/\.0$/, "")}%`;
+const SETS = {
+  A: ["A: Deepfake and real images", "Kaggle image dataset, held-out test split"],
+  B: ["B: 140k real and fake faces", "Real Flickr faces and StyleGAN faces, held-out test split"],
+  C: ["C: DFDC face-swap videos", "One frame per video, never used for training"],
 };
+let result = null, face = 0, run = null, set = "A", which = "after";
+
+fetch("/api/info").then(r => r.json()).then(i => {
+  const ours = !/\//.test(i.model) || /model$/.test(i.model);
+  $("modelLine").textContent = `${ours ? "Fine-tuned" : "Original pre-trained"} ViT-B/16 running on this computer's ${i.device.startsWith("cuda") ? "GPU" : "CPU"}`;
+});
+
+// upload
+const drop = $("drop");
+["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", ev => ev.dataTransfer.files[0] && check(ev.dataTransfer.files[0]));
+$("file").addEventListener("change", ev => ev.target.files[0] && check(ev.target.files[0]));
+$("again").addEventListener("click", () => { $("file").value = ""; $("file").click(); });
+
+async function check(file) {
+  $("photoImg").src = URL.createObjectURL(file);
+  drop.hidden = true; $("photo").hidden = false; $("busy").hidden = false;
+  document.querySelectorAll(".face").forEach(n => n.remove());
+  const body = new FormData(); body.append("file", file);
+  try {
+    const r = await fetch("/api/predict", { method: "POST", body });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "The photo could not be checked.");
+    show(data);
+  } catch (e) {
+    showMessage("Could not check this file", `${e.message} Try a JPG or PNG photo.`);
+  } finally { $("busy").hidden = true; }
+}
+
+function showMessage(title, text) {
+  $("word").textContent = title; $("word").className = "";
+  $("lede").textContent = text; $("lede").hidden = false;
+  ["result", "summary", "facelist", "evidence"].forEach(id => $(id).hidden = true);
+}
+
+function show(r) {
+  result = r;
+  if (r.status !== "ok") return showMessage("No face found", "No verdict is given without a clear face. Try a photo where the face is larger, front-on and well lit.");
+  const fake = r.prediction === "FAKE";
+  $("word").textContent = fake ? "Deepfake" : "Real face";
+  $("word").className = fake ? "fake" : "real";
+  $("lede").hidden = true; $("tip").hidden = true;
+  $("result").hidden = false; $("summary").hidden = false;
+  $("pct").textContent = `${Math.round(r.p_fake * 100)}%`;
+  $("cut").style.left = `${r.threshold * 100}%`;
+  $("cutLabel").textContent = `Cut-off ${pct(r.threshold)}`;
+  $("meterLabel").setAttribute("aria-label", `${pct(r.p_fake)} chance of a deepfake, cut-off ${pct(r.threshold)}`);
+  $("bar").style.width = "0"; requestAnimationFrame(() => requestAnimationFrame(() => $("bar").style.width = `${r.p_fake * 100}%`));
+  $("summary").textContent = r.summary;
+
+  // numbered tags on each face
+  const [W, H] = r.image_size;
+  r.faces.forEach((f, i) => {
+    const [x1, y1, x2, y2] = f.box, d = document.createElement("div");
+    d.className = "face";
+    Object.assign(d.style, { left: `${x1 / W * 100}%`, top: `${y1 / H * 100}%`, width: `${(x2 - x1) / W * 100}%`, height: `${(y2 - y1) / H * 100}%` });
+    d.innerHTML = `<b>${i + 1}</b>`;
+    $("photoBox").appendChild(d);
+  });
+  $("facelist").hidden = r.faces.length < 2;
+  $("facelist").innerHTML = r.faces.map((f, i) =>
+    `<li><b>${i + 1}</b>Face ${i + 1}: ${Math.round(f.p_fake * 100)}% deepfake${i === r.decisive_face ? ", decided the verdict" : ""}<span class="pill ${f.prediction.toLowerCase()}">${f.prediction === "FAKE" ? "Deepfake" : "Real"}</span></li>`).join("");
+
+  $("faceTabs").innerHTML = r.faces.length < 2 ? "" : r.faces.map((_, i) => `<button type="button" data-face="${i}">Face ${i + 1}</button>`).join("");
+  $("faceTabs").querySelectorAll("button").forEach(b => b.onclick = () => showFace(+b.dataset.face));
+  $("evidence").hidden = false;
+  showFace(r.decisive_face);
+}
+
+function showFace(i) {
+  face = i;
+  const f = result.faces[i], fake = f.prediction === "FAKE";
+  $("faceTabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.face === i));
+  $("crop").src = f.crop; $("heat").src = f.heatmap;
+  $("evidenceIntro").textContent = `Face ${i + 1} was called ${fake ? "a deepfake" : "real"} (${pct(f.p_fake)} deepfake). Bright areas are where the model found the evidence ${fake ? "that the face is fake" : "that the face is real"}. They show what the decision rested on, not a map of edited pixels.`;
+  $("regions").innerHTML = f.regions.map(g => `
+    <li><span class="name">${g.name[0].toUpperCase() + g.name.slice(1)}</span><span class="val">${pct(g.share)}</span>
+      <span class="track"><i style="width:${g.share * 100}%"></i><u style="left:${g.area * 100}%"></u></span>
+      <small>${g.share > 1.5 * g.area ? "More evidence than its size would suggest" : g.share < 0.5 * g.area ? "Less evidence than its size would suggest" : "About what its size would suggest"}; covers ${pct(g.area)} of the crop.</small></li>`).join("");
+}
+$("opacity").addEventListener("input", e => $("heat").style.opacity = e.target.value / 100);
+$("heat").style.opacity = .85;
+
+// accuracy report
+fetch("/api/metrics").then(r => r.json()).then(runs => {
+  if (!runs.length) return $("reportIntro").textContent = "No test results yet. Run the Kaggle notebook and copy its results into reports/.";
+  run = runs[0];
+  const h = run.history.map(e => `${pct(+e.val_accuracy)} after epoch ${e.epoch}`).join(", ");
+  $("reportIntro").textContent = `Measured on Kaggle (training run ${run.version}) on test faces the model never trained on. A false positive is a real face called a deepfake; a false negative is a deepfake that passed as real. Validation accuracy while fine-tuning: ${h}.`;
+  const keys = Object.keys(run.after).filter(k => typeof run.after[k] === "object");
+  $("rows").innerHTML = keys.map(k => {
+    const a = run.after[k], b = run.before[k], [name, desc] = SETS[k] || [k, ""];
+    const note = k === "C" && run.version !== "v1" ? "One frame per test video, from people never seen in training" : desc;
+    return `<tr data-set="${k}" tabindex="0"><td><div class="set"><strong>${name}</strong><span>${note}</span></div></td>
+      <td class="num" data-label="Faces">${a.images}</td><td class="num" data-label="Original model">${pct(b.accuracy)}</td><td class="num big" data-label="Our model">${pct(a.accuracy)}</td>
+      <td class="num" data-label="False positives">${a.real_called_fake}</td><td class="num ${a.fake_called_real > a.images / 4 ? "err" : ""}" data-label="False negatives">${a.fake_called_real}</td><td class="num" data-label="AUC">${a.auc == null ? "n/a" : a.auc.toFixed(3)}</td></tr>`;
+  }).join("");
+  $("rows").querySelectorAll("tr").forEach(tr => {
+    tr.onclick = () => pick(tr.dataset.set);
+    tr.onkeydown = e => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), pick(tr.dataset.set));
+  });
+  pick(keys[0]);
+});
+$("mTabs").querySelectorAll("button").forEach(b => b.onclick = () => { which = b.dataset.run; pick(set); });
+
+function pick(k) {
+  set = k;
+  $("rows").querySelectorAll("tr").forEach(tr => tr.setAttribute("aria-selected", tr.dataset.set === k));
+  $("mTabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.run === which));
+  const m = run[which][k], [[tn, fp], [fn, tp]] = m.confusion_matrix;
+  $("mTitle").textContent = `${(SETS[k] || [k])[0]}, ${which === "after" ? "our model" : "original model"}`;
+  const cell = (n, label, cls) => `<div class="cell ${cls}"><strong>${n}</strong>${label}</div>`;
+  $("matrix").innerHTML = `<span></span><span class="h">Called real</span><span class="h">Called deepfake</span>
+    <span class="rh">Real faces</span>${cell(tn, "Correct", "ok")}${cell(fp, "False positives", fp ? "bad" : "")}
+    <span class="rh">Deepfakes</span>${cell(fn, "False negatives", fn ? "bad" : "")}${cell(tp, "Correct", "ok")}`;
+  const a = run.after[k], b = run.before[k], fakes = a.confusion_matrix[1][0] + a.confusion_matrix[1][1];
+  const weak = k === "C" && a.fake_called_real > fakes / 2;
+  $("mNote").hidden = !weak;
+  if (weak) $("mNote").textContent = `Known weak spot: these are face-swap frames from videos, a different kind of fake from the generated faces in A and B. Our model missed ${a.fake_called_real} of ${fakes} fakes here. Its ranking still improved slightly (AUC ${b.auc.toFixed(3)} to ${a.auc.toFixed(3)}); training on face-swap examples is the fix.`;
+}
 </script>
-</body></html>
+</body>
+</html>

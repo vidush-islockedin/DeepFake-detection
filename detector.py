@@ -1,4 +1,5 @@
 """MT-ViT detector: MTCNN finds the face, a Vision Transformer decides REAL or FAKE."""
+import json
 from pathlib import Path
 
 import torch
@@ -19,21 +20,26 @@ def open_image(data):
 
 
 def find_faces(mtcnn, img, min_conf=0.9):
-    """All faces as (box, confidence), largest first."""
-    boxes, probs = mtcnn.detect(img)
+    """All faces as (box, confidence, 5 landmarks: eyes, nose, mouth corners), largest first."""
+    boxes, probs, points = mtcnn.detect(img, landmarks=True)
     if boxes is None:
         return []
-    faces = [(b.tolist(), float(p)) for b, p in zip(boxes, probs) if p >= min_conf]
+    faces = [(b.tolist(), float(p), l.tolist()) for b, p, l in zip(boxes, probs, points) if p >= min_conf]
     return sorted(faces, key=lambda f: (f[0][2] - f[0][0]) * (f[0][3] - f[0][1]), reverse=True)
 
 
-def crop_face(img, box, margin=MARGIN):
-    """Square crop around the face, kept inside the image."""
+def square(img, box, margin=MARGIN):
+    """(left, top, side) of a square around the face, kept inside the image."""
     x1, y1, x2, y2 = box
-    side = min(max(x2 - x1, y2 - y1) * margin, img.width, img.height)
-    left = min(max((x1 + x2 - side) / 2, 0), img.width - side)
-    top = min(max((y1 + y2 - side) / 2, 0), img.height - side)
-    return img.crop((round(left), round(top), round(left + side), round(top + side)))
+    side = int(min(max(x2 - x1, y2 - y1) * margin, img.width, img.height))
+    left = int(min(max((x1 + x2 - side) / 2, 0), img.width - side))
+    top = int(min(max((y1 + y2 - side) / 2, 0), img.height - side))
+    return left, top, side
+
+
+def crop_face(img, box, margin=MARGIN):
+    left, top, side = square(img, box, margin)
+    return img.crop((left, top, left + side, top + side))
 
 
 def label_index(model, name):
@@ -46,8 +52,10 @@ class Detector:
     def __init__(self, model_path=None):
         self.source = str(model_path or (LOCAL_MODEL if LOCAL_MODEL.exists() else BASE_MODEL))
         self.processor = AutoImageProcessor.from_pretrained(self.source)
-        self.model = AutoModelForImageClassification.from_pretrained(self.source).to(DEVICE).eval()
+        self.model = AutoModelForImageClassification.from_pretrained(self.source).to(DEVICE).eval().requires_grad_(False)
         self.fake, self.real = label_index(self.model, "fake"), label_index(self.model, "real")
+        cut = Path(self.source, "threshold.json")    # written by train.py; the original model uses 0.5
+        self.threshold = json.load(open(cut))["threshold"] if cut.exists() else 0.5
         self.mtcnn = MTCNN(keep_all=True, device=DEVICE)
 
     @torch.no_grad()
@@ -56,20 +64,22 @@ class Detector:
         x = self.processor(images=faces, return_tensors="pt")["pixel_values"].to(DEVICE)
         return self.model(pixel_values=x).logits.softmax(-1)[:, self.fake].tolist()
 
-    def predict(self, img):
+    def predict(self, img, explain=True):
+        from explain import explain_face, summary
         faces = find_faces(self.mtcnn, img)
         if not faces:
             return {"status": "no_face", "faces": [], "message": "No face found, so no verdict is given."}
-        scores = self.p_fake([crop_face(img, box) for box, _ in faces])
+        scores = self.p_fake([crop_face(img, box) for box, *_ in faces])
         top = max(range(len(faces)), key=lambda i: scores[i])   # the image is FAKE if any face is
-        p = scores[top]
-        return {
-            "status": "ok",
-            "prediction": "FAKE" if p >= 0.5 else "REAL",
-            "p_fake": p, "p_real": 1 - p, "confidence": max(p, 1 - p),
-            "faces": [{"box": [round(v) for v in box], "face_confidence": c, "p_fake": s}
-                      for (box, c), s in zip(faces, scores)],
-            "decisive_face": top,
-            "model": self.source,
-            "labels": self.model.config.id2label,
+        p, verdict = scores[top], lambda s: "FAKE" if s >= self.threshold else "REAL"
+        result = {
+            "status": "ok", "prediction": verdict(p), "threshold": self.threshold,
+            "p_fake": p, "p_real": 1 - p, "confidence": p if p >= self.threshold else 1 - p,
+            "faces": [{"box": [round(v) for v in box], "face_confidence": c, "p_fake": s, "prediction": verdict(s),
+                       **(explain_face(self, img, box, pts, verdict(s) == "FAKE") if explain else {})}
+                      for (box, c, pts), s in zip(faces, scores)],
+            "decisive_face": top, "image_size": [img.width, img.height],
+            "model": self.source, "labels": self.model.config.id2label,
         }
+        result["summary"] = summary(result) if explain else ""
+        return result

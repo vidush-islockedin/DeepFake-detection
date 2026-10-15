@@ -1,7 +1,9 @@
 # DeepFake-detection (MT-ViT)
 
 MTCNN finds each face → a Vision Transformer (ViT-B/16) says **REAL** or **FAKE**, with P(FAKE).
-Runs on a normal laptop CPU at **http://localhost:8000**. Training happens once, on Kaggle's free GPU.
+Every answer comes with a Grad-CAM heatmap, the share of evidence in the eyes, nose, mouth and rest of the face,
+and a plain-English summary. The page also shows the measured test results (accuracy, false positives, false negatives).
+Runs on a normal laptop CPU at **http://localhost:8000**. Training happens on Kaggle's free GPU.
 
 Team: Abdulla Mahir · Vidush Karnani · Ishaan Kulkarni
 
@@ -25,6 +27,11 @@ Team: Abdulla Mahir · Vidush Karnani · Ishaan Kulkarni
    - C: competition `deepfake-detection-challenge` (accept its rules first; only `train_sample_videos` is used)
 3. Settings (right panel): **Accelerator → GPU**, **Internet → On** (needs a phone-verified account).
 4. **Run All**. When done, download `model.zip` and `results.zip` from **Output**.
+5. Unzip `results.zip` into `reports/v<N>/` (so it holds `before/`, `after/`, `history.csv`); the web page shows the newest run.
+
+Training run v1 (A + B only) is in `reports/v1/`. Run v2 adds the training part of C (DFDC, split by person so no
+identity is in both train and test), video-style augmentation (blur, downscale, JPEG), balanced sampling and a
+REAL/FAKE cut-off chosen on validation (`model/threshold.json`).
 
 ## What each file does
 | File | Job |
@@ -33,7 +40,9 @@ Team: Abdulla Mahir · Vidush Karnani · Ishaan Kulkarni
 | `app.py` | The localhost:8000 web app + `/api/predict`. |
 | `prepare.py` | Datasets → face crops in `faces/<split>/<A,B,C>/<real,fake>/`. |
 | `train.py` | Fine-tune the ViT on A + B, keep the best epoch. |
+| `explain.py` | Grad-CAM heatmap, evidence per face region, plain-English summary. |
 | `evaluate.py` | Accuracy, precision, recall, F1, AUC, confusion matrix per test set. |
+| `reports/` | Results measured on Kaggle, one folder per training run. |
 | `tests/` | `pytest` checks with a tiny stand-in model (no internet needed). |
 
-Dataset C (DFDC) is **only** used for testing, to show how the model does on data it never saw.
+The heatmap shows where the model found its evidence, not a pixel-exact map of edits.

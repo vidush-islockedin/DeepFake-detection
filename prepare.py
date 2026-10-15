@@ -1,15 +1,18 @@
 """Turn the raw datasets into face crops:  faces/<split>/<dataset>/<real|fake>/*.jpg
 
 Image datasets (A, B): label comes from the folder name (real / fake), split from train / valid / test.
-DFDC videos (C): label comes from metadata.json; one middle frame per video, test only.
+DFDC videos (C): label comes from metadata.json.
+  default             one middle frame per video, all test (an unseen test set)
+  --dfdc-frames N     split videos 60/15/25 into train/val/test by identity, N frames per training video
 
   python prepare.py --src /kaggle/input/deepfake-and-real-images --name A
   python prepare.py --src /kaggle/input/140k-real-and-fake-faces --name B
-  python prepare.py --dfdc .../train_sample_videos/metadata.json --name C
+  python prepare.py --dfdc .../train_sample_videos/metadata.json --name C [--dfdc-frames 4]
 """
 import argparse
 import json
 import random
+import zlib
 from pathlib import Path
 
 import cv2
@@ -44,12 +47,29 @@ def image_items(src, per_class):
     return items
 
 
-def video_frame(path):
-    cap = cv2.VideoCapture(str(path))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) // 2)
-    ok, frame = cap.read()
+def dfdc_items(meta_path, frames):
+    """[(video, label, split, n_frames)]. A fake and the real video it was made from always share a split."""
+    items = []
+    for name, v in json.load(open(meta_path)).items():
+        label, group = v["label"].lower(), v.get("original") or name
+        h = zlib.crc32(group.encode()) % 100
+        split = "test" if not frames else "train" if h < 60 else "val" if h < 75 else "test"
+        n = 1 if split == "test" else frames * (4 if label == "real" else 1)   # 4x frames for the rarer real videos
+        items.append((Path(meta_path).parent / name, label, split, n))
+    return items
+
+
+def video_frames(path, n):
+    """n evenly spaced frames as RGB images (n=1 gives the middle frame)."""
+    cap, out = cv2.VideoCapture(str(path)), []
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    for k in range(n):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, total * (2 * k + 1) // (2 * n))
+        ok, frame = cap.read()
+        if ok:
+            out.append(Image.fromarray(frame[:, :, ::-1]))    # OpenCV is BGR -> RGB
     cap.release()
-    return Image.fromarray(frame[:, :, ::-1]) if ok else None    # OpenCV is BGR -> RGB
+    return out
 
 
 def main():
@@ -59,28 +79,24 @@ def main():
     ap.add_argument("--name", required=True)
     ap.add_argument("--out", default="faces")
     ap.add_argument("--per-class", type=int, default=5000)
+    ap.add_argument("--dfdc-frames", type=int, default=0)
     a = ap.parse_args()
-
-    if a.dfdc:
-        meta = json.load(open(a.dfdc))
-        items = [(Path(a.dfdc).parent / f, v["label"].lower(), "test") for f, v in meta.items()]
-    else:
-        items = image_items(a.src, a.per_class)
+    items = dfdc_items(a.dfdc, a.dfdc_frames) if a.dfdc else [(*i, 1) for i in image_items(a.src, a.per_class)]
 
     mtcnn, saved, no_face = MTCNN(keep_all=True, device=DEVICE), 0, 0
-    for i, (path, label, split) in enumerate(items):
-        img = video_frame(path) if a.dfdc else open_image(path)
-        faces = find_faces(mtcnn, img) if img else []
-        if not faces:
-            no_face += 1
-            continue
-        out = Path(a.out) / split / a.name / label / f"{path.stem}.jpg"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        crop_face(img, faces[0][0]).save(out, quality=95)
-        saved += 1
+    for i, (path, label, split, n) in enumerate(items):
+        for k, img in enumerate(video_frames(path, n) if a.dfdc else [open_image(path)]):
+            faces = find_faces(mtcnn, img)
+            if not faces:
+                no_face += 1
+                continue
+            out = Path(a.out) / split / a.name / label / f"{path.stem}{f'_{k}' if n > 1 else ''}.jpg"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            crop_face(img, faces[0][0]).save(out, quality=95)
+            saved += 1
         if i % 1000 == 0:
             print(f"{i}/{len(items)}")
-    print(f"{a.name}: saved {saved} face crops, skipped {no_face} images with no face")
+    print(f"{a.name}: saved {saved} face crops, skipped {no_face} images/frames with no face")
 
 
 if __name__ == "__main__":
