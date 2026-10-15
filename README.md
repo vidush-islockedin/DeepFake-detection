@@ -7,6 +7,8 @@ Runs on a normal laptop CPU at **http://localhost:8000**. Training happens on Ka
 
 Team: Abdulla Mahir · Vidush Karnani · Ishaan Kulkarni
 
+Why every model, dataset and setting was chosen (and viva Q&A): see **[DECISIONS.md](DECISIONS.md)**.
+
 ## Run it on your laptop (Windows / Mac / Linux)
 1. Install Python 3.10–3.12.
 2. In this folder:
