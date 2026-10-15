@@ -39,7 +39,7 @@ REAL/FAKE cut-off chosen on validation (`model/threshold.json`).
 | `detector.py` | Find faces, crop, score. Labels are read from the model's own config, so REAL/FAKE can't swap. |
 | `app.py` | The localhost:8000 web app + `/api/predict`. |
 | `prepare.py` | Datasets → face crops in `faces/<split>/<A,B,C>/<real,fake>/`. |
-| `train.py` | Fine-tune the ViT on A + B, keep the best epoch. |
+| `train.py` | Fine-tune the ViT (augmented, balanced), keep the best epoch, pick the cut-off. |
 | `explain.py` | Grad-CAM heatmap, evidence per face region, plain-English summary. |
 | `evaluate.py` | Accuracy, precision, recall, F1, AUC, confusion matrix per test set. |
 | `reports/` | Results measured on Kaggle, one folder per training run. |
