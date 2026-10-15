@@ -26,7 +26,7 @@ BLUR = 8                                   # Gaussian radius (px at 224) used to
 NAMES = {"eyes": "Eyes", "nose": "Nose", "mouth": "Mouth", "skin": "Cheeks, forehead and jaw",
          "surround": "Hair, ears and background"}
 PLURAL = {"eyes", "skin", "surround"}
-FAKE_RGB, REAL_RGB, FOCUS_RGB = (214, 46, 69), (43, 134, 208), (245, 197, 24)
+FAKE_RGB, REAL_RGB, FOCUS_RGB = (214, 46, 69), (0, 150, 122), (245, 197, 24)
 
 
 def log_odds(det, images, batch=16):
