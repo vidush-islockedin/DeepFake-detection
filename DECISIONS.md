@@ -139,11 +139,34 @@ v1 scored 25% on C. v2 attacks the cause, not the symptom:
 4. **Video-style augmentation** (see the table above).
 5. **A tuned cut-off.** v1 called FAKE at P ≥ 0.5. v2 picks the cut-off with the best **balanced accuracy on validation** and saves it in `model/threshold.json`. The app reads it automatically.
 
-**v1 is kept.** Its results stay in `reports/v1/`, and its weights stay as a separate download. v2 goes to `reports/v2/`, and the web page shows the newest run.
+**v1 is kept.** Its results stay in `reports/v1/`, and its weights stay as a separate download. v2's results are in `reports/v2/`; the web page shows the newest run. The cut-off chosen for v2 was **0.65**.
 
 ---
 
-## 5. Results (v1, measured on Kaggle test sets the model never trained on)
+## 5. Results (measured on Kaggle test sets the model never trained on)
+
+### v2: the current model (cut-off 0.65, chosen on validation)
+
+| Test set | Faces | Accuracy | Balanced acc. | Precision | Recall | F1 | AUC | False positives | False negatives |
+|---|---|---|---|---|---|---|---|---|---|
+| A | 1,878 | **92.2%** | 92.2% | 0.92 | 0.93 | 0.92 | 0.975 | 76 | 71 |
+| B | 1,999 | **96.0%** | 96.0% | 0.96 | 0.96 | 0.96 | 0.993 | 38 | 42 |
+| C | 115 | **86.1%** | 87.6% | 0.98 | 0.85 | 0.91 | 0.927 | 2 | 14 |
+
+Validation accuracy during training: 92.1% (epoch 1), **95.3% (epoch 2, kept)**, 94.7% (epoch 3).
+
+### v1 compared with v2
+
+| Test set | v1 | v2 | What changed |
+|---|---|---|---|
+| A | 92.5% | 92.2% | −0.3 points: within noise for 1,878 faces |
+| B | 97.6% | 96.0% | −1.6 points: the model leans less on tiny GAN traces now that it also learns face swaps and blurred, compressed photos |
+| C | 25.1% | **86.1%** | +61 points; AUC 0.61 → 0.93. The domain gap is largely closed |
+
+Note: v1's C test used one frame from all 382 videos (C was unseen). v2 trains on C, so its C test is only the 25% of
+**people** held out for testing: 115 faces. That number is honest but less precise than A's or B's.
+
+### v1 (kept for comparison, `reports/v1/`)
 
 | Test set | Faces | Accuracy before → after | Precision | Recall | F1 | AUC | False positives | False negatives |
 |---|---|---|---|---|---|---|---|---|
@@ -151,39 +174,32 @@ v1 scored 25% on C. v2 attacks the cause, not the symptom:
 | B | 1,999 | 54.3% → **97.5%** | 0.98 | 0.97 | 0.98 | 0.997 | 23 | 26 |
 | C | 382 | 68.1% → **25.1%** | 1.00 | 0.07 | 0.12 | 0.611 | 0 | 286 |
 
-"Before" means the downloaded model with no fine-tuning. Validation accuracy during training was 93.9% after epoch 1 and 96.5% after epoch 2.
-
 ### How to read these numbers
 - **FAKE is the positive class.** A *false positive* is a real face called fake. A *false negative* is a fake that slipped through as real.
-- **Precision** asks: when the model says FAKE, how often is it right?
-- **Recall** asks: of all the fakes, how many did it catch?
-- **F1** is the balance of the two.
+- **Precision** asks: when the model says FAKE, how often is it right? **Recall** asks: of all the fakes, how many did it catch? **F1** balances the two.
 - **AUC** measures how well the model *ranks* fakes above reals, whatever cut-off is used. 0.5 is a coin flip; 1.0 is perfect.
-- **On A and B,** fine-tuning removed the original model's bias towards saying FAKE. It had called 659 and 652 real faces fake. Fine-tuning lifted accuracy by 28 and 43 points.
-- **On C, accuracy fell, and that's an honest finding, not a bug:**
-  1. C is 80% fake. The original model's habit of saying FAKE looked like skill there, but its AUC was only 0.59 (near chance), and its balanced accuracy was 0.55.
-  2. Our model learned what *GAN* fakes look like. C's *face swaps* in compressed video look different, so it calls them real (286 of 306 missed).
-  3. Its AUC actually went **up** (0.59 → 0.61), so its ranking didn't get worse. The 0.5 cut-off simply doesn't fit this kind of fake. This **domain gap** is the main known weakness of deepfake detectors in published research too, and it is what v2 is designed to fix.
-- **For an imbalanced set like C, accuracy and F1 mislead.** Use **balanced accuracy and AUC** there.
+- **Balanced accuracy** is the average of the recall on real faces and on fakes. Use it (and AUC) for an imbalanced set like C, which is about 80% fake.
+- **Why v1 failed on C:** it learned what *GAN* fakes look like, and C's *face swaps* in compressed video look different, so it called them real (286 of 306 missed). v2 fixed this by training on face swaps (split by person), adding blur/JPEG augmentation, balancing the datasets and tuning the cut-off.
+- **The web page shows a full classification report** (precision, recall, F1 and support for REAL and FAKE separately) and the confusion matrix for each set.
 
 ---
 
 ## 6. How the explanation works (`explain.py`)
 
-We do not make up reasons. Every sentence is built from measured numbers.
+We do not make up reasons. Every sentence is built from measured numbers. Two measurements are made on each face.
 
-1. **Grad-CAM for a ViT.**
-   - Take the 196 patch tokens entering the **last** transformer block.
-   - Compute the gradient of (score of the verdict) minus (score of the other class) with respect to those tokens.
-   - Average the gradient over each token's 768 features to get a weight per feature. Multiply by the token values, sum the features, and keep only the positive part (ReLU).
-   - The result is a 14×14 map, upsampled to 224×224.
-   - Why the last block's *input*? The classifier only reads the [CLS] token, and patch tokens only reach [CLS] through attention. After the last block, patch tokens no longer affect the answer, so their gradient would be zero.
-2. **Regions from landmarks.** MTCNN's 5 points define ellipses for the eyes, nose and mouth. The rest of the face box is "cheeks, forehead and jaw", and everything outside it is "hair and edges".
-   - For each region we report its **share of the evidence** and its **share of the picture**.
-   - A region holding much more evidence than its size is called out in the summary.
-3. **The summary** states the confidence, the top two regions, whether the result is close to the cut-off, and which face decided the verdict when there are several.
+1. **Blur test (occlusion).** This is what makes the red/blue map and the per-part reasons.
+   - Blur one part of the face crop (Gaussian, radius 8 px at 224 px), score it again, and compare the **log-odds** (FAKE logit minus REAL logit) with the original.
+   - If blurring a part **lowers** the deepfake score, that part's fine detail was making the face look **fake** (red). If blurring it **raises** the score, its detail was making the face look **real** (blue).
+   - Done for the five parts from MTCNN's landmarks (eyes, nose, mouth, cheeks/forehead/jaw, hair/ears/background), and for a 6 × 6 grid of squares on the deciding face to draw the map. That is 41 extra forward passes, a few seconds on a laptop CPU.
+   - Why this method: it is **causal** (it is what the model actually does when the detail is gone) and it gives a **direction** (fake or real) for every part, which Grad-CAM on its own does not.
+   - Log-odds, not probability, because when the model is 99% sure, probabilities barely move even when a part matters a lot.
+2. **Grad-CAM focus.** Shown as a second map (yellow) and as "Grad-CAM focus %" for each part.
+   - Take the 196 patch tokens entering the **last** transformer block, take the gradient of (verdict logit − other logit), average it over the 768 features, weight the tokens, sum and keep the positive part (ReLU). A 14 × 14 map, upsampled to 224 × 224.
+   - Why the last block's *input*? The classifier only reads the [CLS] token, and patch tokens reach [CLS] only through attention. After the last block they no longer affect the answer, so their gradient would be zero.
+3. **The summary** gives the deepfake score against the cut-off, the part that moves the score most (with the before/after numbers), any part that points the other way, whether the result is close to the cut-off, and which face decided the verdict when there are several.
 
-**What the heatmap is not.** It shows *where the evidence for the verdict came from*. It is not a pixel-perfect map of what was edited; a classifier trained on real/fake labels cannot know that. We say this on the page.
+**What the maps are not.** They show *where the evidence was*. They are not a pixel-perfect map of what was edited; a classifier trained on real/fake labels cannot know that. We say this on the page.
 
 ---
 
@@ -203,7 +219,7 @@ We do not make up reasons. Every sentence is built from measured numbers.
 
 ## 8. Limitations and ethics
 
-- **The verdict is only reliable on fakes like the training data.** Strong on GAN faces (A, B); weak on face-swap video (C, in v1). Newer diffusion-model images (Midjourney, DALL·E, etc.) are untested.
+- **The verdict is only reliable on fakes like the training data.** Strong on GAN faces (A, B) and, since v2, much better on DFDC face swaps (C), but C's test set is small (115 faces). Newer diffusion-model images (Midjourney, DALL·E, etc.) are untested.
 - **It judges only the face.** A real face pasted onto a fake background, or a manipulated voice, is out of scope.
 - **Small, blurry, heavily filtered or side-on faces** reduce accuracy, and MTCNN may not find them at all.
 - **Dataset bias.** The training faces come from public sources, and the demographic balance is not documented by the dataset authors, so accuracy may differ across groups. We did not measure this.
@@ -244,7 +260,7 @@ Face-swap artefacts are often at the boundary where the fake face is blended in:
 See section 5. For a deepfake filter, **recall** matters most (don't let fakes through), balanced against precision (don't accuse real photos). On imbalanced data we rely on **AUC and balanced accuracy**.
 
 **Q11. Your accuracy on C dropped from 68% to 25%. Isn't that bad?**
-The 68% was mostly the original model's bias towards saying FAKE on a set that is 80% fake; its AUC was 0.59, near chance. Our model learned GAN fakes, and C contains face swaps, so it misses them. The AUC actually rose slightly. This is a domain gap, a known open problem, and v2 addresses it with face-swap training data, video augmentation and a tuned cut-off.
+The 68% was mostly the original model's bias towards saying FAKE on a set that is 80% fake; its AUC was 0.59, near chance. Our model learned GAN fakes, and C contains face swaps, so it misses them. The AUC actually rose slightly. This is a domain gap, a known open problem. v2 fixed most of it with face-swap training data (split by person), video augmentation, balanced sampling and a tuned cut-off: C went from 25.1% to 86.1% (AUC 0.61 → 0.93).
 
 **Q12. What is a domain gap?**
 When test data comes from a different distribution than the training data, such as a different generator or compression, the patterns the model learned may not exist there.
@@ -254,6 +270,12 @@ See section 6. We use the gradient of the verdict score with respect to the patc
 
 **Q14. Does the heatmap show what was edited?**
 No. It shows where the model found the evidence for its answer. A classifier trained only on real/fake labels cannot localise edits exactly.
+
+**Q14b. How do you decide which parts look fake and which look real?**
+The blur test (section 6): blur one part, score again. If the deepfake score drops, that part's detail looked fake (red); if it rises, it looked real (blue). It is causal, and it gives a direction, which Grad-CAM alone does not. We compare log-odds so the effect still shows when the model is 99% sure.
+
+**Q14c. A and B dropped slightly in v2. Is that a problem?**
+No. A fell 0.3 points (within noise for 1,878 faces) and B 1.6 points, while C rose 61 points. One model now has to cover GAN faces and face swaps, and the blur/JPEG augmentation stops it relying on the tiniest GAN traces. That is the usual robustness trade-off, and it is clearly worth it.
 
 **Q15. How do you know REAL and FAKE aren't swapped?**
 The label index is read by name from the model's own config (`id2label`), never assumed. The automated tests check three different label orders.
@@ -272,7 +294,7 @@ A ViT-B has 86 million parameters and needs millions of images to train from zer
 - A fairness check across demographic groups.
 
 **Q19. What is the cut-off and why 0.5 (or not)?**
-In v1 it is 0.5. In v2 it is chosen on validation data to maximise balanced accuracy, because the best cut-off depends on the class balance and the kind of fakes. Moving the cut-off only trades false positives for false negatives; only a better model reduces both.
+In v1 it is 0.5. In v2 it is **0.65**, chosen on validation data to maximise balanced accuracy, because the best cut-off depends on the class balance and the kind of fakes. Moving the cut-off only trades false positives for false negatives; only a better model reduces both.
 
 **Q20. Why Kaggle for training and a laptop for running?**
 Fine-tuning an 86M-parameter ViT on 20,000+ images needs a proper GPU; Kaggle gives an NVIDIA T4/P100 for free. Our laptops have integrated Intel Iris Xe graphics, which would take many hours or days for the same job. Running the trained model on one image takes about a second on a CPU, so the demo works on any laptop.

@@ -1,0 +1,64 @@
+{
+  "model": "/kaggle/working/model",
+  "threshold": 0.65,
+  "A": {
+    "images": 1878,
+    "accuracy": 0.9217252396166135,
+    "precision": 0.9209157127991675,
+    "recall": 0.9257322175732218,
+    "f1": 0.9233176838810642,
+    "auc": 0.9746628214087983,
+    "confusion_matrix": [
+      [
+        846,
+        76
+      ],
+      [
+        71,
+        885
+      ]
+    ],
+    "real_called_fake": 76,
+    "fake_called_real": 71
+  },
+  "B": {
+    "images": 1999,
+    "accuracy": 0.9599799899949975,
+    "precision": 0.9618473895582329,
+    "recall": 0.958,
+    "f1": 0.9599198396793587,
+    "auc": 0.9928128128128128,
+    "confusion_matrix": [
+      [
+        961,
+        38
+      ],
+      [
+        42,
+        958
+      ]
+    ],
+    "real_called_fake": 38,
+    "fake_called_real": 42
+  },
+  "C": {
+    "images": 115,
+    "accuracy": 0.8608695652173913,
+    "precision": 0.9759036144578314,
+    "recall": 0.8526315789473684,
+    "f1": 0.9101123595505618,
+    "auc": 0.9273684210526314,
+    "confusion_matrix": [
+      [
+        18,
+        2
+      ],
+      [
+        14,
+        81
+      ]
+    ],
+    "real_called_fake": 2,
+    "fake_called_real": 14
+  }
+}

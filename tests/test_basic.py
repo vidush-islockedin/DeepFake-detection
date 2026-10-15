@@ -77,8 +77,10 @@ def test_end_to_end(tmp_path):
     assert r["status"] == "ok" and len(r["faces"]) == 1 and r["prediction"] in ("REAL", "FAKE")
     assert abs(r["p_fake"] + r["p_real"] - 1) < 1e-6
     f = r["faces"][0]
-    assert f["heatmap"].startswith("data:image/png") and abs(sum(g["share"] for g in f["regions"]) - 1) < 1e-4
-    assert r["summary"].startswith("The model is")
+    assert f["heatmap"].startswith("data:image/png") and f["focus"].startswith("data:image/png")
+    assert abs(sum(g["weight"] for g in f["regions"]) - 1) < 1e-4 and f["tests"] == 5 + 36   # 5 regions + 6x6 grid
+    assert all(0 <= g["p_without"] <= 1 and g["lean"] in ("REAL", "FAKE") for g in f["regions"])
+    assert r["summary"].startswith("Deepfake score")
     assert Detector(tmp_path / "ft").predict(Image.new("RGB", (300, 300), "gray"))["status"] == "no_face"
 
 
@@ -94,4 +96,10 @@ def test_api(tmp_path, monkeypatch):
     assert c.post("/api/predict", files={"file": ("a.jpg", buf.getvalue())}).json()["status"] == "ok"
     assert c.post("/api/predict", files={"file": ("a.txt", b"hello")}).status_code == 400
     assert c.get("/").status_code == 200
-    assert c.get("/api/metrics").json()[-1]["after"]["C"]["fake_called_real"] == 286
+    m = c.get("/api/metrics").json()                    # newest run: v2
+    assert m["version"] == "v2" and m["sets"]["C"]["fake_called_real"] == 14
+    rep = m["sets"]["A"]["classes"]
+    assert rep["REAL"]["support"] + rep["FAKE"]["support"] == m["sets"]["A"]["images"]
+    assert abs(rep["FAKE"]["recall"] - m["sets"]["A"]["recall"]) < 1e-9
+    info = c.get("/api/info").json()
+    assert info["vit"]["layers"] >= 1 and info["mtcnn"]["stages"] == ["P-Net", "R-Net", "O-Net"]

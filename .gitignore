@@ -4,3 +4,4 @@ model/
 faces/
 results/
 *.zip
+static/_qa/

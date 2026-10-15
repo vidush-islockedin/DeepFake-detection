@@ -11,6 +11,7 @@ BASE_MODEL = "dima806/deepfake_vs_real_image_detection"   # pre-trained ViT-B/16
 LOCAL_MODEL = Path(__file__).parent / "model"              # our fine-tuned copy, if it exists
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MARGIN = 1.3                                               # crop 1.3x the face box (keeps the blend edges)
+MAX_FACES, MAX_EXPLAINED = 12, 4                           # faces scored / faces explained per photo
 
 
 def open_image(data):
@@ -70,14 +71,20 @@ class Detector:
         if not faces:
             return {"status": "no_face", "faces": [], "message": "No face found, so no verdict is given."}
         scores = self.p_fake([crop_face(img, box) for box, *_ in faces])
+        faces, scores = faces[:MAX_FACES], scores[:MAX_FACES]
         top = max(range(len(faces)), key=lambda i: scores[i])   # the image is FAKE if any face is
+        if top >= MAX_EXPLAINED:                                # always explain the face that decided
+            order = [top] + [i for i in range(len(faces)) if i != top]
+            faces, scores, top = [faces[i] for i in order], [scores[i] for i in order], 0
         p, verdict = scores[top], lambda s: "FAKE" if s >= self.threshold else "REAL"
         result = {
             "status": "ok", "prediction": verdict(p), "threshold": self.threshold,
             "p_fake": p, "p_real": 1 - p, "confidence": p if p >= self.threshold else 1 - p,
             "faces": [{"box": [round(v) for v in box], "face_confidence": c, "p_fake": s, "prediction": verdict(s),
-                       **(explain_face(self, img, box, pts, verdict(s) == "FAKE") if explain else {})}
-                      for (box, c, pts), s in zip(faces, scores)],
+                       "landmarks": [[round(x), round(y)] for x, y in pts],
+                       **(explain_face(self, img, box, pts, verdict(s) == "FAKE", detail=i == top)
+                          if explain and i < MAX_EXPLAINED else {})}
+                      for i, ((box, c, pts), s) in enumerate(zip(faces, scores))],
             "decisive_face": top, "image_size": [img.width, img.height],
             "model": self.source, "labels": self.model.config.id2label,
         }
