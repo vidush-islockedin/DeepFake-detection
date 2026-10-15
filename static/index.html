@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>MT-ViT</title>
+<style>body{font-family:system-ui;max-width:640px;margin:40px auto;padding:0 16px}img{max-width:100%}pre{background:#f4f4f5;padding:12px;overflow:auto}</style></head>
+<body>
+<h1>MT-ViT deepfake detector</h1>
+<p>Temporary test page. The designed interface arrives in Phase 4.</p>
+<input type="file" id="f" accept="image/*">
+<pre id="out">Choose an image…</pre>
+<script>
+f.onchange = async () => {
+  const body = new FormData(); body.append("file", f.files[0]);
+  out.textContent = "Analysing…";
+  const r = await fetch("/api/predict", {method: "POST", body});
+  out.textContent = JSON.stringify(await r.json(), null, 2);
+};
+</script>
+</body></html>
