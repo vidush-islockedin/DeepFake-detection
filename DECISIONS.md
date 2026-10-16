@@ -162,7 +162,7 @@ Gemini makes images with a diffusion model; A and B are GAN faces and C is face 
    checkpointed and resumed after a restart, every notebook cell works on its own, and the weights are stored in 16-bit
    (about 170 MB instead of 330 MB; they are loaded back as 32-bit, and the test numbers are measured on that file).
 
-**v2 is kept as a savepoint.** Code: git tag `v2` (branch `v2-savepoint`). Weights: `model_v2.zip` / the `model_v2`
+**v2 is kept as a savepoint.** Code: git branch `v2-savepoint`. Weights: `model_v2.zip` / the `model_v2`
 folder. `run.ps1 -Use 2` switches the app back to v2 and the page then shows v2's results.
 
 ---

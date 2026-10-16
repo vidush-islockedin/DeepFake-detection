@@ -31,7 +31,7 @@ requirements.txt && pip install facenet-pytorch==2.6.0 --no-deps`, unzip the mod
 4. **Run All**. Any cell can be re-run after a restart; finished work is skipped and training resumes from its last epoch.
 5. Download `model_v3.zip` and `results_v3.zip`. Unzip the results into `reports/v3/` (`before/`, `after/`, `history.csv`).
 
-Savepoint: v2 is git tag `v2` (branch `v2-savepoint`); its results stay in `reports/v2/`, v1's in `reports/v1/`.
+Savepoint: v2 is git branch `v2-savepoint`; its results stay in `reports/v2/`, v1's in `reports/v1/`.
 v2 results: A 92.2%, B 96.0%, C 86.1% on held-out test faces, cut-off 0.65. Gemini-made faces scored about 50/50,
 which is why v3 adds D, E and G (see DECISIONS.md, "What v3 changes and why").
 
