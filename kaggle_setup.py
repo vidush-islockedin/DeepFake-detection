@@ -30,7 +30,7 @@ DATASETS = {
 }
 
 
-def _levels(root=None, depth=6):
+def _levels(root=None, depth=8):
     """Folders under root, one level at a time (shallowest first), skipping folders of images."""
     level = [Path(root or INPUT)]
     for _ in range(depth + 1):
@@ -68,9 +68,22 @@ def datasets(refresh=False):
         status = p or ("MISSING - add it with '+ Add Input'" if required else "not added")
         print(f"{name:9s} {status}   ({page})")
         if required and not p:
-            raise SystemExit(f"{name} is required. Add {page} with '+ Add Input'. Mounted: {os.listdir(INPUT)}")
+            raise SystemExit(f"{name} is required. Add {page} with '+ Add Input' (it must be listed under Input on the "
+                             f"right). Mounted now: {mounted()}")
     CACHE.write_text(json.dumps(found))
     return found
+
+
+def mounted():
+    """Names of what is attached, e.g. datasets/xhlulu/140k-real-and-fake-faces (Kaggle now nests them)."""
+    out = []
+    for level in list(_levels(depth=3))[1:]:
+        for d in level:
+            parts = d.relative_to(INPUT).parts
+            if (len(parts) == 3 and parts[0] != "competitions") or (len(parts) == 2 and parts[0] == "competitions") \
+                    or (len(parts) == 1 and parts[0] not in ("datasets", "competitions", "notebooks", "models")):
+                out.append("/".join(parts))
+    return out
 
 
 def done(name):
