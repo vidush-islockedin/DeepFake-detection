@@ -8,7 +8,7 @@ Runs on a normal laptop CPU at **http://localhost:8000**. Training happens on Ka
 
 Team: Abdulla Mahir · Vidush Karnani · Ishaan Kulkarni
 
-Why every model, dataset and setting was chosen (and viva Q&A): see **[DECISIONS.md](DECISIONS.md)**.
+Why every model, dataset and setting was chosen (and viva Q&A): **[DECISIONS.md](DECISIONS.md)**. How the code works, file by file: **[EXPLAINER.md](EXPLAINER.md)**.
 
 ## Run it on your laptop (Windows)
 Install Python 3.10–3.12, put `model_v3.zip` (from Kaggle) in Downloads, then in this folder:

@@ -12,14 +12,15 @@ MT-ViT decides whether a face in a photo is **real** or a **deepfake**, and show
 
 1. **MTCNN** finds every face and its five landmarks (two eyes, nose, two mouth corners).
 2. A **Vision Transformer (ViT-B/16)** gives each face a probability of being fake.
-3. **Grad-CAM** draws a heatmap of the evidence, which is split into face regions and turned into a one-sentence explanation.
+3. A **blur test** blurs each part of the face and scores it again, to show which parts looked fake and which looked real; **Grad-CAM** shows where the model looked. Both feed a plain-English summary built only from measured numbers.
 
 It runs on a normal laptop CPU at `localhost:8000`. Training was done once, on Kaggle's free GPU.
 
 ```
 photo ─► MTCNN (3 small CNNs) ─► face boxes + landmarks ─► square crop ×1.3 ─► resize 224×224
       ─► ViT-B/16 (12 transformer blocks) ─► P(FAKE) per face ─► verdict (FAKE if any face ≥ cut-off)
-      ─► Grad-CAM on the last block ─► heatmap ─► share of evidence in eyes / nose / mouth / rest / surround
+      ─► blur test (5 face parts + 6×6 grid) ─► red/green map + a reason per part
+      ─► Grad-CAM on the last block ─► yellow focus map ─► plain-English summary
 ```
 
 ---
@@ -113,7 +114,7 @@ A to E are public (Kaggle, and one Hugging Face set downloaded inside the Kaggle
 1. Run MTCNN on every image (or the middle frame of every DFDC video).
 2. Crop a **square 1.3 times the face box**, so the hairline, jaw and blending edges stay in view. Fake blending artefacts often sit right at the face boundary.
 3. Save the crop to `faces/<split>/<dataset>/<real|fake>/`. The label comes from the folder name (A, B) or `metadata.json` (C). Images with no face are skipped and counted.
-4. Take at most **5,000 images per class** for training, and **1,000 per class** for validation and test, from A and B. This keeps a Kaggle session around one hour.
+4. Take at most **5,000 images per class** for training, and **1,000 per class** for validation and test, from A and B. This kept a v2 Kaggle session around one hour; v3, with D and E added, takes about two hours.
    - Sampling is random with a **fixed seed (42)**, so the same images are picked every run and results can be compared.
 
 ---
@@ -126,8 +127,10 @@ A to E are public (Kaggle, and one Hugging Face set downloaded inside the Kaggle
 | Optimiser | AdamW, learning rate 2e-5, weight decay 0.01 | The standard recipe for fine-tuning transformers. A small learning rate changes pre-trained weights gently and avoids forgetting |
 | Batch size | 32 | Fits the free T4/P100 GPU memory |
 | Mixed precision (AMP) | On | About 2× faster on GPU with the same accuracy |
-| Epochs | 2 (v1), 3 (v2) | Validation accuracy was still rising after epoch 2 in v1 (93.9% → 96.5%) |
-| Model selection | Keep the epoch with the best **validation** accuracy | The test set is never used to make choices, so test numbers stay honest |
+| Epochs | 2 (v1), 3 (v2, v3) | Validation accuracy was still rising after epoch 2 in v1 (93.9% → 96.5%) |
+| Learning-rate schedule (v3) | 5% warm-up, then cosine decay; gradients clipped at 1.0 | v2's fixed rate made epoch 3 worse than epoch 2 |
+| Model selection | Keep the epoch with the best **validation** accuracy (v1, v2) or **balanced accuracy** (v3) | The test set is never used to make choices, so test numbers stay honest |
+| Hardware (v3) | Both Kaggle T4 GPUs, a checkpoint after each epoch | About 1.7× faster, and a Kaggle restart no longer loses the run |
 | Augmentation v1 | Random horizontal mirror | Faces are roughly symmetric; this doubles the variety for free |
 | Augmentation v2 | Mirror + random downscale, blur and JPEG re-compression | Teaches the model to survive video-style damage, which is what C looks like |
 | Label mapping | Read from the model's own `config.id2label` | A previous version swapped REAL and FAKE because it assumed alphabetical folder order. Reading the label names makes a swap impossible |
@@ -170,6 +173,9 @@ folder. `run.ps1 -Use 2` switches the app back to v2 and the page then shows v2'
 
 ## 5. Results (measured on Kaggle test sets the model never trained on)
 
+*v3 (with Gemini and diffusion faces) is set up but not trained yet; its results will go in `reports/v3/` and in a
+table here. Until then v2 is the current model.*
+
 ### v2: the current model (cut-off 0.65, chosen on validation)
 
 | Test set | Faces | Accuracy | Balanced acc. | Precision | Recall | F1 | AUC | False positives | False negatives |
@@ -185,7 +191,7 @@ Validation accuracy during training: 92.1% (epoch 1), **95.3% (epoch 2, kept)**,
 | Test set | v1 | v2 | What changed |
 |---|---|---|---|
 | A | 92.5% | 92.2% | −0.3 points: within noise for 1,878 faces |
-| B | 97.6% | 96.0% | −1.6 points: the model leans less on tiny GAN traces now that it also learns face swaps and blurred, compressed photos |
+| B | 97.5% | 96.0% | −1.5 points: the model leans less on tiny GAN traces now that it also learns face swaps and blurred, compressed photos |
 | C | 25.1% | **86.1%** | +61 points; AUC 0.61 → 0.93. The domain gap is largely closed |
 
 Note: v1's C test used one frame from all 382 videos (C was unseen). v2 trains on C, so its C test is only the 25% of
@@ -213,9 +219,9 @@ Note: v1's C test used one frame from all 382 videos (C was unseen). v2 trains o
 
 We do not make up reasons. Every sentence is built from measured numbers. Two measurements are made on each face.
 
-1. **Blur test (occlusion).** This is what makes the red/blue map and the per-part reasons.
+1. **Blur test (occlusion).** This is what makes the red/green map and the per-part reasons.
    - Blur one part of the face crop (Gaussian, radius 8 px at 224 px), score it again, and compare the **log-odds** (FAKE logit minus REAL logit) with the original.
-   - If blurring a part **lowers** the deepfake score, that part's fine detail was making the face look **fake** (red). If blurring it **raises** the score, its detail was making the face look **real** (blue).
+   - If blurring a part **lowers** the deepfake score, that part's fine detail was making the face look **fake** (red). If blurring it **raises** the score, its detail was making the face look **real** (green).
    - Done for the five parts from MTCNN's landmarks (eyes, nose, mouth, cheeks/forehead/jaw, hair/ears/background), and for a 6 × 6 grid of squares on the deciding face to draw the map. That is 41 extra forward passes, a few seconds on a laptop CPU.
    - Why this method: it is **causal** (it is what the model actually does when the detail is gone) and it gives a **direction** (fake or real) for every part, which Grad-CAM on its own does not.
    - Log-odds, not probability, because when the model is 99% sure, probabilities barely move even when a part matters a lot.
@@ -237,7 +243,7 @@ We do not make up reasons. Every sentence is built from measured numbers. Two me
 | Runs locally, nothing uploaded | Privacy: people test photos of themselves and friends |
 | FastAPI + one HTML page (not Next.js) | One `python app.py` command, no Node.js, and it works on any teammate's laptop |
 | Fonts bundled in the repo | The page looks the same offline |
-| Weights not in the Git repo | About 340 MB, over GitHub's 100 MB file limit. Shared as a Release or zip instead |
+| Weights not in the Git repo | About 340 MB (v1, v2) or 170 MB (v3, 16-bit), over GitHub's 100 MB file limit. Shared as a zip; `run.ps1` installs it |
 | Automated tests use a tiny random ViT | They check the plumbing (labels, crops, API) without the internet or the 340 MB model |
 
 ---
@@ -297,10 +303,10 @@ See section 6. We use the gradient of the verdict score with respect to the patc
 No. It shows where the model found the evidence for its answer. A classifier trained only on real/fake labels cannot localise edits exactly.
 
 **Q14b. How do you decide which parts look fake and which look real?**
-The blur test (section 6): blur one part, score again. If the deepfake score drops, that part's detail looked fake (red); if it rises, it looked real (blue). It is causal, and it gives a direction, which Grad-CAM alone does not. We compare log-odds so the effect still shows when the model is 99% sure.
+The blur test (section 6): blur one part, score again. If the deepfake score drops, that part's detail looked fake (red); if it rises, it looked real (green). It is causal, and it gives a direction, which Grad-CAM alone does not. We compare log-odds so the effect still shows when the model is 99% sure.
 
 **Q14c. A and B dropped slightly in v2. Is that a problem?**
-No. A fell 0.3 points (within noise for 1,878 faces) and B 1.6 points, while C rose 61 points. One model now has to cover GAN faces and face swaps, and the blur/JPEG augmentation stops it relying on the tiniest GAN traces. That is the usual robustness trade-off, and it is clearly worth it.
+No. A fell 0.3 points (within noise for 1,878 faces) and B 1.5 points, while C rose 61 points. One model now has to cover GAN faces and face swaps, and the blur/JPEG augmentation stops it relying on the tiniest GAN traces. That is the usual robustness trade-off, and it is clearly worth it.
 
 **Q15. How do you know REAL and FAKE aren't swapped?**
 The label index is read by name from the model's own config (`id2label`), never assumed. The automated tests check three different label orders.
@@ -330,6 +336,29 @@ B = Base size (12 layers, 768-wide, 12 heads, about 86M parameters). 16 = 16×16
 **Q22. What are MTCNN's three outputs?**
 A face/not-face confidence, the bounding box, and five landmarks (eyes, nose, mouth corners). That is the "multi-task" part.
 
+**Q24. Why did v2 give about 50/50 on images made by Gemini?**
+Gemini makes images with a diffusion model, and v2 never saw one in training (A and B are GAN faces, C is face swaps).
+50/50 is the model saying "I don't know", which is honest. It is the same domain gap v1 had on C, and v3 fixes it the
+same way: by adding that kind of fake to training (D and E).
+
+**Q25. How do you know v3 really catches Gemini fakes and hasn't just memorised them?**
+G is a separate benchmark of **Nano Banana 2** images (a newer Gemini model than the one in E) and real photos from a
+different source, used **only for testing**. A good score on G cannot come from having seen those images.
+
+**Q26. What is the "PNG shortcut" and how did you avoid it?**
+Generated images often come as PNG while real photos are JPEG. A model can learn "no JPEG traces = fake", which is a
+shortcut, not deepfake detection. Half of the D and E images are re-saved as JPEG before cropping, and training adds
+random JPEG compression, so the file format cannot give the answer away.
+
+**Q27. What changed in training for v3?**
+Warm-up then cosine decay of the learning rate, gradient clipping, the best epoch picked by balanced accuracy,
+sampling balanced per (dataset, class), both Kaggle GPUs, a checkpoint after every epoch, and 16-bit saved weights.
+Section "What v3 changes and why" gives the reason for each.
+
+**Q28. Can you go back to v2?**
+Yes. The v2 code is the `v2-savepoint` branch on GitHub and its weights are kept as `model_v2`. `run.ps1 -Use 2`
+switches the app back, and the page then shows v2's results.
+
 **Q23. Is this safe to use as evidence?**
 No. It is an assistive tool with known blind spots, and it can be fooled on purpose. A positive result should prompt verification of the source.
 
@@ -343,4 +372,7 @@ No. It is an assistive tool with known blind spots, and it can be fooled on purp
 - T. Karras et al., *A Style-Based Generator Architecture for Generative Adversarial Networks* (StyleGAN), CVPR 2019.
 - I. Loshchilov and F. Hutter, *Decoupled Weight Decay Regularization* (AdamW), ICLR 2019.
 - Model weights: `dima806/deepfake_vs_real_image_detection`, Hugging Face, Apache-2.0.
+- Datasets (v3): `kaustubhdhote/human-faces-dataset` (Kaggle); `bitmind/nano-banana` (Hugging Face, MIT);
+  `ahnuf05/nano-banana-2-0-the-omni-subject-dataset` (Kaggle); `zr-zhang/MLLM-Generated-Image-Detection-Dataset`
+  (Hugging Face; paper arXiv:2608.01258).
 - Face detector code: `timesler/facenet-pytorch`, MIT licence.
