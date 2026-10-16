@@ -53,10 +53,13 @@ class Detector:
     def __init__(self, model_path=None):
         self.source = str(model_path or (LOCAL_MODEL if LOCAL_MODEL.exists() else BASE_MODEL))
         self.processor = AutoImageProcessor.from_pretrained(self.source)
-        self.model = AutoModelForImageClassification.from_pretrained(self.source).to(DEVICE).eval().requires_grad_(False)
+        self.model = AutoModelForImageClassification.from_pretrained(      # v3 stores 16-bit weights: run in 32-bit
+            self.source, torch_dtype=torch.float32).to(DEVICE).eval().requires_grad_(False)
         self.fake, self.real = label_index(self.model, "fake"), label_index(self.model, "real")
         cut = Path(self.source, "threshold.json")    # written by train.py; the original model uses 0.5
         self.threshold = json.load(open(cut))["threshold"] if cut.exists() else 0.5
+        tag = Path(self.source, "version.txt")       # "v3"; v2 had no version file but was the first with a cut-off
+        self.version = tag.read_text().strip() if tag.exists() else "v2" if cut.exists() else None
         self.mtcnn = MTCNN(keep_all=True, device=DEVICE)
 
     @torch.no_grad()

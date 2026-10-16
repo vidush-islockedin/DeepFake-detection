@@ -26,6 +26,15 @@ DATASETS = {
     "C": {"name": "DeepFake Detection Challenge (DFDC)", "kind": "Face swaps from video",
           "about": "Face-swapped videos. Frames from 60% of the people train the model; test faces come from people it never saw.",
           "url": "https://www.kaggle.com/competitions/deepfake-detection-challenge"},
+    "D": {"name": "Human Faces Dataset", "kind": "Modern AI faces",
+          "about": "About 5,000 real and 5,000 AI-generated face photos from newer image generators.",
+          "url": "https://www.kaggle.com/datasets/kaustubhdhote/human-faces-dataset"},
+    "E": {"name": "Gemini (Nano Banana) images", "kind": "Gemini-made faces",
+          "about": "Images made by Google's Gemini image model; only those with a face are used. All are fake.",
+          "url": "https://huggingface.co/datasets/bitmind/nano-banana"},
+    "G": {"name": "Our Gemini test photos", "kind": "Gemini faces we made",
+          "about": "Faces we generated ourselves in the Gemini app. Used only for testing, never for training.",
+          "url": None},
 }
 
 
@@ -51,6 +60,10 @@ def info():
 
 
 def latest_run():
+    """The results that belong to the model in use (reports/v3 for the v3 model), else the newest run."""
+    own = HERE / "reports" / str(detector.version)
+    if detector.version and (own / "after" / "results.json").exists():
+        return own
     runs = sorted(HERE.glob("reports/v*"), key=lambda d: int(d.name[1:]) if d.name[1:].isdigit() else 0)
     return runs[-1] if runs else None
 
@@ -65,7 +78,8 @@ def class_report(m):
             "FAKE": {"precision": fake_p, "recall": fake_r, "f1": f1(fake_p, fake_r), "support": fn + tp}}
     rows["macro"] = {k: (rows["REAL"][k] + rows["FAKE"][k]) / 2 for k in ("precision", "recall", "f1")}
     rows["macro"]["support"] = tn + fp + fn + tp
-    return {"classes": rows, "balanced_accuracy": (real_r + fake_r) / 2}
+    present = [r for r, n in ((real_r, tn + fp), (fake_r, fn + tp)) if n]      # a fake-only test set has no REAL row
+    return {"classes": rows, "balanced_accuracy": sum(present) / len(present) if present else 0.0}
 
 
 @app.get("/api/metrics")

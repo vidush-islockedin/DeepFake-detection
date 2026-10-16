@@ -6,3 +6,5 @@ results/
 *.zip
 static/_qa/
 .venv/
+model_v*/
+model_old_*/

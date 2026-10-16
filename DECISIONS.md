@@ -84,13 +84,16 @@ The **"M" (MTCNN) + "ViT"** pairing is deliberate. The CNN does what CNNs are be
 
 ## 3. The datasets
 
-All three are public on Kaggle. Training ran there, so nothing was downloaded to our laptops.
+A to E are public (Kaggle, and one Hugging Face set downloaded inside the Kaggle notebook); G is ours. Training ran on Kaggle, so nothing was downloaded to our laptops.
 
 | | Dataset | What is in it | How we used it |
 |---|---|---|---|
 | **A** | *Deepfake and Real Images* (manjilkarki) | Real and fake face images, pre-split into Train / Validation / Test | Train + validation + test |
 | **B** | *140k Real and Fake Faces* (xhlulu) | 70k real faces from Flickr (FFHQ) and 70k StyleGAN-generated faces, split 100k / 20k / 20k | Train + validation + test |
 | **C** | *Deepfake Detection Challenge* sample (Meta/AWS/Microsoft, 2020) | 400 short videos with labels, mostly **face swaps**; about 4 fakes for every real | v1: test only. v2: split by person into train / val / test |
+| **D** (v3) | *Human Faces Dataset* (kaustubhdhote) | About 5k real and 5k AI-generated face photos from newer generators | Fixed 70 / 15 / 15 split by file name |
+| **E** (v3) | *Gemini (Nano Banana) images*: bitmind/nano-banana on Hugging Face (MIT) + ahnuf05's Kaggle set | Images made by Google's Gemini image model; only those where MTCNN finds a face are used. All fake | 70 / 15 / 15 split |
+| **G** (v3) | *Our Gemini test photos* | Faces we made ourselves in the Gemini app with our own prompts | **Test only**, never trained on |
 
 ### Why these three
 - **A and B** are large, balanced, already split, and give clean labels from folder names. A gives variety; B gives a well-known GAN benchmark (StyleGAN vs real Flickr faces).
@@ -103,7 +106,7 @@ All three are public on Kaggle. Training ran there, so nothing was downloaded to
 | FaceForensics++ | The standard benchmark, but requires a signed request form and days of waiting |
 | Celeb-DF v2 | Also behind a request form |
 | Full DFDC (470 GB) | Far too large for a free Kaggle session |
-| Generated images from Midjourney / Stable Diffusion | No large, labelled, face-only public set we could verify in time |
+| Generated images from Midjourney / Stable Diffusion (v1, v2) | No large, labelled, face-only public set we could verify in time. v3 adds D and E for this |
 
 ### How the data was prepared (`prepare.py`)
 1. Run MTCNN on every image (or the middle frame of every DFDC video).
@@ -140,6 +143,27 @@ v1 scored 25% on C. v2 attacks the cause, not the symptom:
 5. **A tuned cut-off.** v1 called FAKE at P ≥ 0.5. v2 picks the cut-off with the best **balanced accuracy on validation** and saves it in `model/threshold.json`. The app reads it automatically.
 
 **v1 is kept.** Its results stay in `reports/v1/`, and its weights stay as a separate download. v2's results are in `reports/v2/`; the web page shows the newest run. The cut-off chosen for v2 was **0.65**.
+
+### What v3 changes and why
+v2 gave about 50 / 50 on faces made by Gemini. The reason is the same as v1 on C: **no image like that was in training**.
+Gemini makes images with a diffusion model; A and B are GAN faces and C is face swaps.
+
+1. **New data.** D (newer AI faces, with matching real faces) and E (Gemini's own images) join training. G, made by us
+   with our own prompts, is a test set only, so a good score on G cannot come from having seen those images.
+2. **No "PNG = fake" shortcut.** Generated images often arrive as PNG while real photos are JPEG. Half of the D and E
+   images are re-saved as JPEG (quality 70-95) before cropping, so the file format cannot give the answer away.
+3. **Balanced by group.** Sampling now weights every (dataset, class) group by 1/√(size), so a fake-only set (E) cannot
+   tilt the model towards FAKE.
+4. **Training schedule.** 5% warm-up then a cosine decay of the learning rate, and gradient clipping at 1.0. v2 used a
+   fixed rate and its third epoch was worse than its second.
+5. **Best epoch by balanced accuracy** (mean of real-correct and fake-correct) at that epoch's own cut-off. Plain
+   accuracy would reward an epoch that leans towards the larger class.
+6. **Faster and restart-proof on Kaggle.** Both T4 GPUs are used (training and face cropping), every epoch is
+   checkpointed and resumed after a restart, every notebook cell works on its own, and the weights are stored in 16-bit
+   (about 170 MB instead of 330 MB; they are loaded back as 32-bit, and the test numbers are measured on that file).
+
+**v2 is kept as a savepoint.** Code: git tag `v2` (branch `v2-savepoint`). Weights: `model_v2.zip` / the `model_v2`
+folder. `run.ps1 -Use 2` switches the app back to v2 and the page then shows v2's results.
 
 ---
 
@@ -219,7 +243,7 @@ We do not make up reasons. Every sentence is built from measured numbers. Two me
 
 ## 8. Limitations and ethics
 
-- **The verdict is only reliable on fakes like the training data.** Strong on GAN faces (A, B) and, since v2, much better on DFDC face swaps (C), but C's test set is small (115 faces). Newer diffusion-model images (Midjourney, DALL·E, etc.) are untested.
+- **The verdict is only reliable on fakes like the training data.** Strong on GAN faces (A, B) and, since v2, much better on DFDC face swaps (C), but C's test set is small (115 faces). v2 does not handle newer diffusion-model images (Gemini, Midjourney, DALL·E), which is what v3's D, E and G target. New generators keep appearing, so no detector stays complete.
 - **It judges only the face.** A real face pasted onto a fake background, or a manipulated voice, is out of scope.
 - **Small, blurry, heavily filtered or side-on faces** reduce accuracy, and MTCNN may not find them at all.
 - **Dataset bias.** The training faces come from public sources, and the demographic balance is not documented by the dataset authors, so accuracy may differ across groups. We did not measure this.

@@ -651,7 +651,7 @@ fetch("/api/metrics").then(r => r.json()).then(m => {
   const n = Object.values(m.sets).reduce((a, s) => a + s.images, 0);
   $("aIntro").textContent = `Measured on Kaggle (training run ${m.version}) on ${n.toLocaleString("en-US")} test faces the model never trained on, with the ${pct(m.threshold)} cut-off. A false positive is a real face called a deepfake; a false negative is a deepfake that passed as real. Pick a dataset for its full report.`;
   $("rows").innerHTML = Object.entries(m.sets).map(([k, s]) => `
-    <tr data-set="${k}" tabindex="0"><td><div class="set"><strong>${k}: ${esc(s.name)}</strong><span>${esc(s.kind || "")}</span>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">Open on Kaggle ↗</a>` : ""}</div></td>
+    <tr data-set="${k}" tabindex="0"><td><div class="set"><strong>${k}: ${esc(s.name)}</strong><span>${esc(s.kind || "")}</span>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">Open on ${s.url.includes("huggingface") ? "Hugging Face" : "Kaggle"} ↗</a>` : ""}</div></td>
       <td class="num" data-label="Test faces">${s.images.toLocaleString("en-US")}</td>
       <td class="num big" data-label="Accuracy">${pct(s.accuracy)}</td>
       <td class="num" data-label="Balanced">${pct(s.balanced_accuracy)}</td>

@@ -6,13 +6,14 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 from PIL import Image
 from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from detector import Detector, crop_face, label_index  # noqa: E402
-from prepare import dfdc_items, label_and_split  # noqa: E402
+from prepare import dfdc_items, folder_label, image_items, label_and_split  # noqa: E402
 from train import best_cut, degrade  # noqa: E402
 
 
@@ -39,6 +40,25 @@ def test_crop_is_square_and_inside():
 def test_label_and_split_for_kaggle_layouts():
     assert label_and_split(Path("Dataset/Validation/Fake/1.jpg")) == ("fake", "val")
     assert label_and_split(Path("real_vs_fake/real-vs-fake/train/real/a.jpg")) == ("real", "train")
+
+
+def test_folder_names_of_newer_datasets():
+    assert [folder_label(n) for n in ("AI-Generated Images", "Real Images", "ai_generated", "DALL-E 3", "Midjourney",
+                                      "RealFaces", "Human Faces Dataset", "Train", "images")] == \
+        ["fake", "real", "fake", "fake", "fake", "real", None, None, None]
+
+
+def test_unsplit_dataset_gets_a_fixed_split_and_label_override(tmp_path):
+    for label in ("Real Images", "AI-Generated Images", "misc"):
+        (tmp_path / "Human Faces Dataset" / label).mkdir(parents=True)
+        for i in range(40):
+            Image.new("RGB", (8, 8)).save(tmp_path / "Human Faces Dataset" / label / f"{i}.png")
+    items = image_items(tmp_path, 100)
+    assert {l for _, l, _ in items} == {"real", "fake"} and len(items) == 80          # "misc" is skipped
+    assert {s for _, _, s in items} == {"train", "val", "test"}
+    assert items == image_items(tmp_path, 100)                                         # same split every run
+    assert {l for _, l, _ in image_items(tmp_path, 100, "fake")} == {"fake"}
+    assert {s for _, _, s in image_items(tmp_path, 100, None, True)} == {"test"}
 
 
 def test_dfdc_split_keeps_a_fake_with_its_source(tmp_path):
@@ -68,7 +88,16 @@ def test_end_to_end(tmp_path):
             for i in range(2):
                 face.resize((160, 160)).save(d / f"{i}.jpg")
     run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, check=True, capture_output=True, text=True)
-    run("train.py", "--data", str(tmp_path / "faces"), "--base", str(model), "--out", str(tmp_path / "ft"), "--epochs", "1", "--bs", "4")
+    ck = tmp_path / "ckpt.pt"
+    run("train.py", "--data", str(tmp_path / "faces"), "--base", str(model), "--out", str(tmp_path / "ft"), "--epochs", "1",
+        "--bs", "4", "--resume", str(ck))
+    out = run("train.py", "--data", str(tmp_path / "faces"), "--base", str(model), "--out", str(tmp_path / "ft"),
+              "--epochs", "2", "--bs", "4", "--resume", str(ck)).stdout
+    assert "resumed after epoch 1" in out and "epoch 2:" in out and "epoch 1:" not in out
+    from safetensors import safe_open
+    with safe_open(str(tmp_path / "ft/model.safetensors"), "pt") as f:              # stored in 16-bit
+        assert all(f.get_tensor(k).dtype == torch.float16 for k in f.keys())
+    assert Detector(tmp_path / "ft").model.dtype == torch.float32                    # run in 32-bit
     run("evaluate.py", "--model", str(tmp_path / "ft"), "--data", str(tmp_path / "faces/test"), "--out", str(tmp_path / "res"))
     assert json.load(open(tmp_path / "res/results.json"))["X"]["images"] == 4
     assert 0 < json.load(open(tmp_path / "ft/threshold.json"))["threshold"] < 1
@@ -96,7 +125,7 @@ def test_api(tmp_path, monkeypatch):
     assert c.post("/api/predict", files={"file": ("a.jpg", buf.getvalue())}).json()["status"] == "ok"
     assert c.post("/api/predict", files={"file": ("a.txt", b"hello")}).status_code == 400
     assert c.get("/").status_code == 200
-    m = c.get("/api/metrics").json()                    # newest run: v2
+    m = c.get("/api/metrics").json()                    # newest run: v2 (no v3 results yet)
     assert m["version"] == "v2" and m["sets"]["C"]["fake_called_real"] == 14
     rep = m["sets"]["A"]["classes"]
     assert rep["REAL"]["support"] + rep["FAKE"]["support"] == m["sets"]["A"]["images"]
