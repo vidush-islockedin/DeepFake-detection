@@ -2,7 +2,7 @@
 
 E (training):  every row of a dataset that holds only Gemini images
   python fetch_hf.py --repo bitmind/nano-banana --out /kaggle/temp/nano_banana --max 4000
-G (test only): a benchmark with a metadata.csv saying which generator made each image; we keep real and Nano Banana 2
+G (test only): a benchmark sorted by generator (images/Nano Banana 2/..., images/Real/...); we keep real and Nano Banana 2
   python fetch_hf.py --repo zr-zhang/MLLM-Generated-Image-Detection-Dataset --meta --keep real=real nano_banana2=fake \\
       --out /kaggle/temp/gemini_test --max 1500
 
@@ -74,47 +74,81 @@ def all_images(a):
     print(f"saved {saved} images from {a.repo} to {out} ({time.time() - t0:.0f}s)")
 
 
-def pick(rows, keep, per_label):
-    """Rows whose generator is in `keep`, at most per_label per label; the benchmark's own test split first."""
-    by_label = {}
-    for r in sorted(rows, key=lambda r: (r.get("split", "") != "test", r["_path"])):
-        gen = (r.get("generator") or "").strip().lower()
-        if gen in keep and len(by_label.setdefault(keep[gen], [])) < per_label:
-            by_label[keep[gen]].append(r)
-    return by_label
+def norm(name):
+    return "".join(ch for ch in name.lower() if ch.isalnum())
 
 
-def from_metadata(a):
-    """Read the dataset's metadata.csv, then download only the files we keep (16 at a time)."""
-    from huggingface_hub import hf_hub_download, list_repo_files
-    files = list_repo_files(a.repo, repo_type="dataset")
-    meta = next((f for f in files if f.split("/")[-1] == "metadata.csv"), None)
-    if not meta:
-        raise SystemExit(f"{a.repo} has no metadata.csv. Files start with: {files[:10]}")
-    base = meta.rsplit("/", 1)[0] + "/" if "/" in meta else ""
-    rows = list(csv.DictReader(open(hf_hub_download(a.repo, meta, repo_type="dataset"), encoding="utf-8")))
-    on_hub = set(files)
-    for r in rows:                                        # paths may be relative to the csv or to the repo root
-        p = (r.get("path") or r.get("file_name") or "").lstrip("./")
-        r["_path"] = p if p in on_hub else base + p
-    keep = dict(k.split("=") for k in a.keep)
-    chosen = pick([r for r in rows if r["_path"] in on_hub], keep, a.max)
-    print("in metadata.csv:", {g: sum((r.get("generator") or "").lower() == g for r in rows) for g in keep},
-          "| downloading:", {l: len(v) for l, v in chosen.items()}, flush=True)
-    t0, done = time.time(), [0]
+def interleave(groups):
+    """Round-robin over sub-folders, so a capped download still covers every kind of image."""
+    lists = [sorted(g, key=lambda f: f[0]) for _, g in sorted(groups.items())]
+    out = []
+    for i in range(max((len(l) for l in lists), default=0)):
+        out += [l[i] for l in lists if i < len(l)]
+    return out
+
+
+def choose(a):
+    """{label: [(path, size)]}: from metadata.csv when the repo has one (column `generator`), otherwise from folder
+    names (images/Nano Banana 2/..., images/Real/...). At most --max files and --max-gb per label."""
+    from huggingface_hub import HfApi, hf_hub_download
+    keep = {norm(k): v for k, v in (pair.split("=") for pair in a.keep)}
+    tree = [f for f in HfApi().list_repo_tree(a.repo, repo_type="dataset", recursive=True) if hasattr(f, "size")]
+    sizes = {f.path: f.size or 0 for f in tree}
+    meta = next((p for p in sizes if p.split("/")[-1] == "metadata.csv"), None)
+    groups = {}
+    if meta:
+        base = meta.rsplit("/", 1)[0] + "/" if "/" in meta else ""
+        rows = csv.DictReader(open(hf_hub_download(a.repo, meta, repo_type="dataset"), encoding="utf-8"))
+        for r in rows:
+            p = (r.get("path") or r.get("file_name") or "").lstrip("./")
+            p = p if p in sizes else base + p
+            label = keep.get(norm(r.get("generator") or ""))
+            if label and p in sizes:
+                groups.setdefault(label, {}).setdefault(r.get("split", ""), []).append((p, sizes[p]))
+    else:
+        for p, size in sizes.items():
+            if not p.lower().endswith(IMAGE_EXT):
+                continue
+            label = next((keep[norm(part)] for part in p.split("/")[:-1] if norm(part) in keep), None)
+            if label:
+                groups.setdefault(label, {}).setdefault(p.rsplit("/", 1)[0], []).append((p, size))
+    print("found:", {l: sum(len(g) for g in gs.values()) for l, gs in groups.items()},
+          "| folders:", sorted({p.split("/")[1] for p in sizes if p.count("/") > 1})[:12], flush=True)
+    chosen = {}
+    for label, gs in groups.items():
+        budget, picked = a.max_gb * 1e9, []
+        for f in interleave(gs):
+            if len(picked) >= a.max or budget - f[1] < 0:
+                break
+            picked.append(f)
+            budget -= f[1]
+        chosen[label] = picked
+    return chosen
+
+
+def from_repo(a):
+    """Download the chosen files as they are (no re-encoding), 16 at a time, into <out>/<label>/."""
+    import shutil
+    from huggingface_hub import hf_hub_download
+    chosen = choose(a)
+    if not any(chosen.values()):
+        raise SystemExit(f"Nothing to download from {a.repo} for {a.keep}")
+    print("downloading:", {l: f"{len(v)} files, {sum(s for _, s in v) / 1e9:.1f} GB" for l, v in chosen.items()}, flush=True)
+    stage, t0, done = Path(a.out) / "_download", time.time(), [0]
 
     def get(job):
-        label, r = job
-        out = (Path(a.out) / label / r["_path"].replace("/", "_")).with_suffix(".png")
-        if not out.exists():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            Image.open(hf_hub_download(a.repo, r["_path"], repo_type="dataset")).convert("RGB").save(out)
+        label, path = job
+        dst = Path(a.out) / label / path.replace("/", "_").replace(" ", "_")
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(hf_hub_download(a.repo, path, repo_type="dataset", local_dir=stage), dst)
         done[0] += 1
-        if done[0] % 250 == 0:
+        if done[0] % 200 == 0:
             print(f"{done[0]} images ({time.time() - t0:.0f}s)", flush=True)
 
     with ThreadPoolExecutor(16) as pool:
-        list(pool.map(get, [(l, r) for l, rs in chosen.items() for r in rs]))
+        list(pool.map(get, [(l, p) for l, fs in chosen.items() for p, _ in fs]))
+    shutil.rmtree(stage, ignore_errors=True)
     print(f"saved {done[0]} images from {a.repo} to {a.out} ({time.time() - t0:.0f}s)")
 
 
@@ -123,10 +157,12 @@ def main():
     ap.add_argument("--repo", default="bitmind/nano-banana")
     ap.add_argument("--out", required=True)
     ap.add_argument("--max", type=int, default=4000, help="images in total, or per label with --meta")
-    ap.add_argument("--meta", action="store_true", help="choose files by the generator column of metadata.csv")
+    ap.add_argument("--meta", action="store_true",
+                    help="choose files by generator: metadata.csv if the repo has one, else the folder names")
+    ap.add_argument("--max-gb", type=float, default=3.0, help="download limit per label with --meta")
     ap.add_argument("--keep", nargs="+", default=["real=real", "nano_banana2=fake"], help="generator=label pairs")
     a = ap.parse_args()
-    from_metadata(a) if a.meta else all_images(a)
+    from_repo(a) if a.meta else all_images(a)
 
 
 if __name__ == "__main__":
