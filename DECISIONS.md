@@ -93,7 +93,8 @@ A to E are public (Kaggle, and one Hugging Face set downloaded inside the Kaggle
 | **C** | *Deepfake Detection Challenge* sample (Meta/AWS/Microsoft, 2020) | 400 short videos with labels, mostly **face swaps**; about 4 fakes for every real | v1: test only. v2: split by person into train / val / test |
 | **D** (v3) | *Human Faces Dataset* (kaustubhdhote) | About 5k real and 5k AI-generated face photos from newer generators | Fixed 70 / 15 / 15 split by file name |
 | **E** (v3) | *Gemini (Nano Banana) images*: bitmind/nano-banana on Hugging Face (MIT) + ahnuf05's Kaggle set | Images made by Google's Gemini image model; only those where MTCNN finds a face are used. All fake | 70 / 15 / 15 split |
-| **G** (v3) | *Our Gemini test photos* | Faces we made ourselves in the Gemini app with our own prompts | **Test only**, never trained on |
+| **G** (v3) | *MLLM-Generated Image Detection* benchmark (zr-zhang, 2026): real photos and **Nano Banana 2** images | A newer Gemini model than E's, from a different source | **Test only**, never trained on |
+| **H** (v3, optional) | *Our Gemini test photos* | Faces we made ourselves in the Gemini app | **Test only** |
 
 ### Why these three
 - **A and B** are large, balanced, already split, and give clean labels from folder names. A gives variety; B gives a well-known GAN benchmark (StyleGAN vs real Flickr faces).
@@ -148,8 +149,8 @@ v1 scored 25% on C. v2 attacks the cause, not the symptom:
 v2 gave about 50 / 50 on faces made by Gemini. The reason is the same as v1 on C: **no image like that was in training**.
 Gemini makes images with a diffusion model; A and B are GAN faces and C is face swaps.
 
-1. **New data.** D (newer AI faces, with matching real faces) and E (Gemini's own images) join training. G, made by us
-   with our own prompts, is a test set only, so a good score on G cannot come from having seen those images.
+1. **New data.** D (newer AI faces, with matching real faces) and E (Gemini's own images) join training. G (Nano Banana 2, a newer
+   Gemini model, from a different benchmark) is a test set only, so a good score on G cannot come from having seen those images.
 2. **No "PNG = fake" shortcut.** Generated images often arrive as PNG while real photos are JPEG. Half of the D and E
    images are re-saved as JPEG (quality 70-95) before cropping, so the file format cannot give the answer away.
 3. **Balanced by group.** Sampling now weights every (dataset, class) group by 1/√(size), so a fake-only set (E) cannot

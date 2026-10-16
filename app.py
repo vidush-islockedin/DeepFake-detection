@@ -32,7 +32,10 @@ DATASETS = {
     "E": {"name": "Gemini (Nano Banana) images", "kind": "Gemini-made faces",
           "about": "Images made by Google's Gemini image model; only those with a face are used. All are fake.",
           "url": "https://huggingface.co/datasets/bitmind/nano-banana"},
-    "G": {"name": "Our Gemini test photos", "kind": "Gemini faces we made",
+    "G": {"name": "Gemini test benchmark (Nano Banana 2)", "kind": "Gemini faces, test only",
+          "about": "Real photos and Nano Banana 2 images from a 2026 detection benchmark. Used only for testing, never for training.",
+          "url": "https://huggingface.co/datasets/zr-zhang/MLLM-Generated-Image-Detection-Dataset"},
+    "H": {"name": "Our Gemini test photos", "kind": "Gemini faces we made",
           "about": "Faces we generated ourselves in the Gemini app. Used only for testing, never for training.",
           "url": None},
 }

@@ -26,7 +26,8 @@ requirements.txt && pip install facenet-pytorch==2.6.0 --no-deps`, unzip the mod
    - A: `manjilkarki/deepfake-and-real-images` · B: `xhlulu/140k-real-and-fake-faces`
    - C: competition `deepfake-detection-challenge` (accept its rules first; only `train_sample_videos` is used)
    - D: `kaustubhdhote/human-faces-dataset` · E: `ahnuf05/nano-banana-2-0-the-omni-subject-dataset`
-   - G (optional): your own dataset `gemini-faces-test` with a `fake/` folder of Gemini faces (and `real/` if you have any)
+   - G is downloaded by the notebook (Gemini Nano Banana 2 vs real benchmark, test only); nothing to add
+   - H (optional): your own dataset `gemini-faces-test` with a `fake/` folder of Gemini faces (and `real/` if you have any)
 3. Settings: **Accelerator → GPU T4 x2**, **Internet → On** (phone-verified account; E downloads from Hugging Face).
 4. **Run All**. Any cell can be re-run after a restart; finished work is skipped and training resumes from its last epoch.
 5. Download `model_v3.zip` and `results_v3.zip`. Unzip the results into `reports/v3/` (`before/`, `after/`, `history.csv`).

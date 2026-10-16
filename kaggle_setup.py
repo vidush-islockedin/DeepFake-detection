@@ -26,7 +26,7 @@ DATASETS = {
     "C": ("path:train_sample_videos/metadata.json", "competition deepfake-detection-challenge", False),
     "D": ("slug:human-faces-dataset", "kaustubhdhote/human-faces-dataset", False),
     "E_KAGGLE": ("slug:nano-banana-2-0-the-omni-subject-dataset", "ahnuf05/nano-banana-2-0-the-omni-subject-dataset", False),
-    "G": ("slug:gemini-faces-test", "your own dataset named gemini-faces-test", False),
+    "H": ("slug:gemini-faces-test", "optional: your own Gemini photos as a dataset named gemini-faces-test", False),
 }
 
 
