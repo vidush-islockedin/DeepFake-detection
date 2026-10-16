@@ -5,3 +5,4 @@ faces/
 results/
 *.zip
 static/_qa/
+.venv/
